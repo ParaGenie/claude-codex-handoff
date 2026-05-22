@@ -1,0 +1,23 @@
+{
+  "name": "codex-handoff",
+  "displayName": "Codex Handoff",
+  "version": "0.1.0",
+  "description": "Three-phase Claude Code <-> Codex CLI collaboration workflow: Claude plans and writes the spec, Codex implements in the background, a fresh Codex session adversarially reviews the diff. For code changes that deserve a written spec.",
+  "author": {
+    "name": "ParaGenie",
+    "url": "https://github.com/ParaGenie"
+  },
+  "homepage": "https://github.com/ParaGenie/claude-codex-handoff",
+  "repository": "https://github.com/ParaGenie/claude-codex-handoff.git",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude-code-skill",
+    "openai-codex",
+    "codex-cli",
+    "ai-pair-programming",
+    "agentic-coding",
+    "ai-code-review",
+    "llm-workflow"
+  ]
+}

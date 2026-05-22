@@ -1,0 +1,18 @@
+{
+  "name": "paragenie-skills",
+  "description": "ParaGenie's Claude Code plugins and skills.",
+  "owner": {
+    "name": "ParaGenie",
+    "url": "https://github.com/ParaGenie"
+  },
+  "plugins": [
+    {
+      "name": "codex-handoff",
+      "source": "./.claude-plugin",
+      "description": "Three-phase Claude Code <-> Codex CLI workflow: planner, implementer, adversarial reviewer.",
+      "version": "0.1.0",
+      "homepage": "https://github.com/ParaGenie/claude-codex-handoff",
+      "license": "MIT"
+    }
+  ]
+}

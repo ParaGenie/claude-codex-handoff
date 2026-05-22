@@ -1,0 +1,66 @@
+# <项目名>
+
+> Project identity card for Claude Code. Keep this short — workflow details live in the `codex-handoff` skill.
+
+## Stack
+
+- Backend: <language + framework + version>
+- Frontend: <language + framework + version>
+- Database: <engine + version>
+- Deployment: <runtime / orchestrator / hosting>
+
+## Key Docs
+
+- `docs/<main-spec>.md` — <one-line description>
+- `docs/db-schema.md` — current schema reference
+- `docs/<other-relevant-doc>.md` — <one-line description>
+
+## Common Commands
+
+```bash
+# Replace each <…> with the actual command for this project.
+# Delete sections that don't apply (e.g. backend-only or frontend-only projects).
+
+# Backend
+<dev command>               # dev mode
+<test command>              # unit tests
+<integration test command>  # integration tests, if separate
+
+# Frontend
+<frontend dev command>      # dev server
+<typecheck command>         # type check, if applicable
+<lint command>              # lint
+<build command>             # production build
+```
+
+Pre-commit gate: `<test command>` + `<typecheck command>` + `<lint command>` must all pass.
+
+## Hard Constraints (Do NOT)
+
+<List the things specific to THIS project that agents must never touch. Examples:>
+
+1. Do not touch production config (`.env.production`, prod-only profile files, prod manifests)
+2. Do not modify third-party / external API adapter code without explicit user approval — upstream behavior needs human verification
+3. Do not modify money / billing / commission logic without going through the full `codex-handoff` flow
+4. Do not force-push to `main` or any protected branch
+5. Do not delete migration files, even seemingly obsolete ones
+6. Do not install new dependencies without explicit user confirmation
+
+## Decision Boundaries
+
+These need the project owner's personal sign-off, not agent autonomy:
+
+- Commercial terms (vendor contracts, pricing, commission rules)
+- Visual design beyond reusing existing patterns
+- User-facing copy in new languages
+- Anything touching real production data
+
+## Collaboration Workflow
+
+This project uses the **`codex-handoff` skill** — Claude plans, Codex implements and reviews.
+
+When starting any non-trivial coding task, load the `codex-handoff` skill and follow its three-phase flow (PLAN → IMPLEMENT → REVIEW).
+
+Spec artifacts live in `.agent/specs/`, review reports in `.agent/reviews/`. Both directories are committed to git as design history.
+
+For project-wide code conduct (assumptions, simplicity, surgical changes), the `karpathy-guidelines` skill also applies.
