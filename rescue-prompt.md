@@ -19,6 +19,14 @@ Rules:
 5. Do not merge the branch. Do not push to main/develop.
 6. Do not enable feature flags or modify production config.
 7. When done, report: branch name, final commit hash, summary of which spec sections you addressed.
+8. Fill spec Section 9 (DoD Evidence) before declaring done. Missing any applicable subsection (9.1 static / 9.2 runtime / 9.3 unit) means task is not done. Reviewer will reject.
+9. Do not write compatibility code unless Section 8 (Compatibility Exemption Registry) is filled out with a justified entry first. If you encounter what looks like a legitimate compat need mid-task, stop and amend the spec, then resume.
+
+Acceptance verification must cover three tiers per spec Section 5:
+- 5.1 Static build (always required)
+- 5.2 Runtime verification (when changes touch service/UI)
+- 5.3 Unit tests (when changes touch critical paths)
+Paste the actual command tails into spec Section 9.1 / 9.2 / 9.3 respectively.
 
 If you encounter ambiguity in the spec, stop and report — do not improvise. List the specific question and which spec line is unclear.
 

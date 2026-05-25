@@ -18,6 +18,11 @@ Required checks:
 2. Identify any "Do NOT" item (spec section 4) that was violated.
 3. Identify any change outside spec section 2's scope (unauthorized edits, even if they look harmless).
 4. Focus areas for this specific change: <FOCUS_AREAS>
+5. **Compatibility-code drift**: grep the diff for `legacy` / `fallback` / `deprecated` / `oldFormat` / `兼容` / `旧版` plus semantic patterns like `if (versionLT...)` or `try { ... } catch (Old...)`. Cross-reference with spec Section 8 — any pattern present that isn't registered = violation.
+6. **Scope creep**: run `git diff --name-only <base>...HEAD` and compare against spec Section 2 "Files to modify" / "Files to create" lists. Anything outside the registered set is out-of-scope (unless it was logged under Section 6 follow-ups).
+7. **Project-specific whitelist (if applicable)**: if the project has a whitelist spec (e.g. allowed UI components, allowed library calls, allowed API patterns) referenced from CLAUDE.md or project spec, grep the diff for usage and cross-check.
+8. **DoD evidence completeness**: verify spec Section 9.1 / 9.2 / 9.3 have actual command tails pasted (not "I ran it" claims). 9.2 requires the screenshot + console + network triple for UI changes. Missing applicable subsection = NEEDS_CHANGES, not PASS.
+9. **Spec compliance traceability**: every finding in your review must cite `(§N line N)` or equivalent project-specific reference. Findings without traceable citation are not acceptable.
 
 Additional pressure-test angles:
 - Hidden assumptions (timezones, encoding, null handling, integer overflow, currency precision)
