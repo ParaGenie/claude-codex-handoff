@@ -35,14 +35,17 @@ This skill encodes that protocol so you don't have to reinvent it every task.
                            │ you reply "approved"
                            ▼
 ┌────────────────────────────────────────────────────────────┐
-│  PHASE 2 — IMPLEMENT   (Codex via /codex:rescue)           │
-│  Branch → code → tests → commit. Runs in background.       │
+│  PHASE 2 — IMPLEMENT   (split: Codex edits, Claude verifies)│
+│  Claude:  git switch -c feat/<slug>                        │
+│  Codex:   edit files + list cmds in spec §9 (no git/shell) │
+│  Claude:  run §9 cmds → paste output → git commit          │
 └──────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
 ┌────────────────────────────────────────────────────────────┐
 │  PHASE 3 — REVIEW   (fresh Codex via /codex:adversarial-…) │
-│  Re-read spec → challenge the diff → report blockers       │
+│  Plugin auto-injects diff → Codex evaluates against        │
+│  spec + §9 evidence → report blockers                      │
 └──────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -51,6 +54,15 @@ This skill encodes that protocol so you don't have to reinvent it every task.
 ```
 
 All communication happens **inside one Claude Code session** via `/codex:*` slash commands provided by the [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin.
+
+### Why Phase 2 is split
+
+The Codex CLI sandbox has two unconfigurable limits: `.git/` is read-only (no `commit` / `branch`), and `.venv` / `node_modules` are not visible inside the sandbox (no `pytest` / `npm run build`). So the workflow splits Phase 2 along that boundary:
+
+- **Codex** does what its sandbox allows: edit source files and write the *exact command lines* the verifier should run, into spec Section 9.
+- **Claude main session** does git ops + verify against the host working tree (where `.venv` / `node_modules` actually live), pastes the command output into Section 9, and commits.
+
+Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and Section 9 evidence (paste with real command tails). The reviewer evaluates against both without trying to re-run anything — which it couldn't, anyway.
 
 ## When to use it
 
@@ -199,13 +211,16 @@ Claude: [loads skill, probes code, asks 1-2 clarifying questions,
 
 You: approved
 
-Claude: [issues /codex:rescue --background]
+Claude: [git switch -c feat/stale-items-indicator main]
+        [issues /codex:rescue --background]
         Codex is implementing in the background. I'll check back when it's done.
 
-[...Codex works...]
+[...Codex edits files, writes acceptance command lines into spec §9...]
 
-Claude: Codex finished on feat/stale-items-indicator (commit abc123),
-        acceptance commands passed. Starting review.
+Claude: Codex finished. Running acceptance commands from §9 now.
+        [runs `npm run typecheck`, `npm test`, dev-server + manual click-through]
+        All green. Pasted output into §9.1 / §9.2 / §9.3.
+        Committed as abc123. Starting review.
         [issues /codex:adversarial-review --background]
 
 [...reviewer works...]

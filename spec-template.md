@@ -89,7 +89,11 @@ Before writing such code, ask: "Is this a real, permanent business constraint, o
 
 ## 9. Definition of Done Evidence (filled at implementation time)
 
-Implementer must paste actual command output for each category that applies. Reviewer rejects "I ran it" claims without paste.
+Ownership of Section 9 is split because the Codex sandbox cannot see `.venv` / `node_modules` and cannot write to `.git`:
+
+- **Codex (implementer)** fills the **command lines** — exact shell invocations corresponding to each Section 5 acceptance criterion. Codex does NOT execute them.
+- **Main Claude session** runs those command lines in the host working tree and pastes the actual output tails (~30 lines per command) under each `$ <command>` line.
+- **Reviewer** evaluates whether the pasted output demonstrably satisfies the corresponding Section 5 criterion. "I ran it" without paste = NEEDS_CHANGES.
 
 ### 9.1 Static build evidence
 
@@ -251,13 +255,15 @@ Illegal (reviewer should bounce):
 
 ### Section 9 (DoD Evidence)
 
-Implementer fills this at the end of Phase 2 (IMPLEMENT). Missing any applicable subsection = reviewer marks NEEDS_CHANGES.
+Filled at the end of Phase 2 (IMPLEMENT). Split ownership (sandbox-imposed):
 
-- 9.1 Static build: paste actual command tail (not "I ran it")
-- 9.2 Runtime verification: required when changes touch a running service or UI. For UI, the screenshot + console + network triple is mandatory; build-only is insufficient.
-- 9.3 Unit tests: required only when changes touch your project's critical-path list. If not, write the explicit "not applicable" note.
+- **Codex** writes the command lines into 9.1 / 9.2 / 9.3 (one per Section 5 criterion). Codex does NOT execute them — its sandbox cannot resolve `.venv/bin/*` or `node_modules/.bin/*`.
+- **Main Claude session** runs the command lines in the host working tree and pastes the tails (~30 lines each) under each `$ <command>` line.
+- For UI tasks (9.2), the screenshot + console + network triple cannot be produced by either agent — the main session hands off to the **user** to capture them.
 
-Reviewer re-runs acceptance commands themselves and does not trust implementer paste alone.
+Missing any applicable subsection = reviewer marks NEEDS_CHANGES.
+
+Reviewer evaluates the pasted output against Section 5; the sandbox does not allow the reviewer to re-run commands, so the paste is the single source of truth.
 
 ---
 

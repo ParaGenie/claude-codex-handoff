@@ -2,6 +2,36 @@
 
 > Read this file when entering Phase 2 of `codex-handoff` workflow. Use the template below to delegate implementation to Codex.
 
+## Sandbox Reality Check (read first)
+
+The Codex CLI sandbox has two hard-coded constraints that shape Phase 2 division of labor:
+
+1. **`.git/` is read-only.** All `git switch / branch / add / commit / restore / stash / reset / checkout` write operations fail with `Operation not permitted` on `.git/index.lock`, even when the project is marked `trust_level = "trusted"`.
+2. **`.venv/` and `node_modules/` are not visible.** The sandbox sees a filtered copy of the working tree that excludes these directories, so `pytest`, `ruff`, `npm run build`, anything that resolves to `.venv/bin/*` or `node_modules/.bin/*` fails with `command not found`.
+
+Both are unconfigurable. Don't waste cycles trying to work around them — design around them:
+
+| Job | Owner |
+|---|---|
+| Create `feat/<SLUG>` branch and check it out | **Main session** (before `/codex:rescue`) |
+| Modify source files per spec | **Codex sandbox** |
+| List acceptance commands in spec Section 9 | **Codex sandbox** |
+| Run acceptance commands, paste output | **Main session** (after Codex finishes) |
+| `git add` + `git commit` | **Main session** |
+| Browser screenshot for UI tasks (Section 9.2) | **User** (handed off by main session) |
+
+The handoff template below enforces this split. Codex stays in its lane (file edits), main session does the rest.
+
+---
+
+## Before You Trigger Rescue (main session prep, ~30s)
+
+1. `git switch -c feat/<SLUG> <BASE_BRANCH>` — create the branch in the host working tree. Codex will see it as the current branch.
+2. Confirm the spec at `.agent/specs/YYYY-MM-DD-<SLUG>.md` exists and Section 5 lists concrete, runnable acceptance commands.
+3. Confirm `.venv` / `node_modules` are installed in the host working tree (you will run verify against them later — Codex will not).
+
+---
+
 ## Standard Template
 
 Substitute `<SLUG>`, `<SPEC_PATH>`, and `<BASE_BRANCH>` then issue:
@@ -12,26 +42,35 @@ Substitute `<SLUG>`, `<SPEC_PATH>`, and `<BASE_BRANCH>` then issue:
 Implement strictly according to <SPEC_PATH>.
 
 Rules:
-1. Create a new branch `feat/<SLUG>` from `<BASE_BRANCH>` (do not branch from main).
-2. Only modify files listed in spec section 2 ("Files to modify" / "Files to create"). Do not edit anything else, even if you notice a bug or smell.
-3. Strictly observe spec section 4 ("Do NOT"). Treat every bullet as a hard prohibition.
-4. After implementation, run every acceptance command from spec section 5. Paste the output (last 20-30 lines per command) into the final commit message.
-5. Do not merge the branch. Do not push to main/develop.
-6. Do not enable feature flags or modify production config.
-7. When done, report: branch name, final commit hash, summary of which spec sections you addressed.
-8. Fill spec Section 9 (DoD Evidence) before declaring done. Missing any applicable subsection (9.1 static / 9.2 runtime / 9.3 unit) means task is not done. Reviewer will reject.
-9. Do not write compatibility code unless Section 8 (Compatibility Exemption Registry) is filled out with a justified entry first. If you encounter what looks like a legitimate compat need mid-task, stop and amend the spec, then resume.
+1. The main session already checked out branch `feat/<SLUG>` for you. Do NOT run any git command — your sandbox blocks all writes to `.git/`. No `git switch / branch / add / commit / restore / stash / reset / checkout`. Just edit files.
+2. Only modify files listed in spec Section 2 ("Files to modify" / "Files to create"). Do not edit anything else, even if you notice a bug or smell.
+3. Strictly observe spec Section 4 ("Do NOT"). Treat every bullet as a hard prohibition.
+4. **Do NOT execute acceptance commands.** Your sandbox cannot see `.venv` / `node_modules`, so `pytest`, `npm run build`, `ruff`, etc. will all fail with `command not found`. Instead: into spec Section 9.1 / 9.2 / 9.3, paste the **exact command lines** the main session should run (one per acceptance criterion in Section 5). Leave the output blocks empty under `$ <command>` — the main session fills them.
+5. Do NOT try to enable feature flags, change `.env*` files, or modify production config.
+6. Do NOT write compatibility code unless spec Section 8 (Compatibility Exemption Registry) is filled with a justified entry first. If you encounter what looks like a legitimate compat need mid-task, stop and report — do not improvise.
+7. When done, report:
+   - Files you modified / created (file paths only, no diff dump)
+   - Which spec sections you addressed (Section 2 line numbers / Section 3 bullet numbers)
+   - The exact command lines you wrote into Section 9.1 / 9.2 / 9.3 (so the main session can run them)
+   - Any spec ambiguity you resolved and how (so the main session can confirm or push back)
+8. If you encounter ambiguity in the spec, stop and report — do not improvise. List the specific question and which spec line is unclear.
 
-Acceptance verification must cover three tiers per spec Section 5:
-- 5.1 Static build (always required)
-- 5.2 Runtime verification (when changes touch service/UI)
-- 5.3 Unit tests (when changes touch critical paths)
-Paste the actual command tails into spec Section 9.1 / 9.2 / 9.3 respectively.
+Acceptance commands must cover three tiers per spec Section 5:
+- 5.1 Static build (always required) → command lines into Section 9.1
+- 5.2 Runtime verification (when changes touch service/UI) → command lines into Section 9.2
+- 5.3 Unit tests (when changes touch critical paths) → command lines into Section 9.3
 
-If you encounter ambiguity in the spec, stop and report — do not improvise. List the specific question and which spec line is unclear.
-
-If acceptance commands fail, do not declare success. Report the failure with the command and last 30 lines of output.
+Do NOT assume tests will pass. You are not running them. The main session will run them and report failures back to you via `/codex:rescue --resume` if needed.
 ```
+
+### What the main session does after Codex finishes
+
+1. Read `/codex:result` to confirm files were modified.
+2. Run the command lines Codex pasted into Section 9.1 / 9.2 / 9.3 in the host working tree.
+3. Paste the actual tails (last 20-30 lines per command) under each `$ <command>` in Section 9.
+4. For UI changes: hand off to the user for the screenshot + console + network triple (Section 9.2). Background sessions cannot drive a browser.
+5. `git add <Section-2-files>` + `git commit -m "<task>: implement per spec"` on `feat/<SLUG>`.
+6. If any acceptance command failed, do not advance to Phase 3 — go back to Codex via `/codex:rescue --resume` with the failure paste.
 
 ---
 
@@ -45,7 +84,7 @@ For tasks expected to finish in under ~5 minutes (a few-line bugfix with tests):
 /codex:rescue
 
 Implement strictly according to <SPEC_PATH>.
-[... same rules 1-7 ...]
+[... same rules 1-8 ...]
 ```
 
 Trade-off: blocks the Claude Code session while running. Acceptable for short tasks.
@@ -62,11 +101,11 @@ Address the blockers listed in <REVIEW_PATH>:
 1. <Blocker 1 — specific instruction>
 2. <Blocker 2 — specific instruction>
 
-Stay on branch `feat/<SLUG>`. Same rules as before:
-- Do not expand scope beyond what's listed above
-- Re-run acceptance commands from <SPEC_PATH> section 5 after fixes
-- Paste outputs in commit message
-- Report final commit hash when done
+Stay on branch `feat/<SLUG>` (main session already on it). Same rules as before:
+- Do not run any git command
+- Do not execute acceptance commands — update Section 9 command lines if they need to change, main session re-runs them
+- Do not expand scope beyond the blockers above
+- Report what you changed and which Section 9 commands the main session should re-run
 ```
 
 Note: `--resume` continues the latest Codex thread for this repo, preserving context. Faster than `--fresh` for follow-ups.
@@ -103,29 +142,67 @@ Other models exposed by the plugin (`gpt-5.4-mini`, `gpt-5.3-codex`, `spark` ali
 
 After `/codex:result` returns:
 
-### Sanity check (before proceeding to Phase 3)
+### Sanity check (before running verify yourself)
 
-- [ ] Branch was created with the expected name?
-- [ ] Commits exist on that branch?
-- [ ] Acceptance command outputs visible in commit message?
-- [ ] Codex reported success (not "I couldn't do X because Y")?
+- [ ] Codex reported a list of modified / created files matching spec Section 2?
+- [ ] Codex pasted command lines into Section 9.1 / 9.2 / 9.3?
+- [ ] Codex did NOT report attempting git or shell commands (those should have been rejected by sandbox)?
+- [ ] Codex did NOT report "I couldn't do X because Y" — if so, address the blocker before proceeding?
 
-If any of these fail, **do not advance to Phase 3**. Either:
+If sanity check passes, **the main session takes over**:
 
-1. **Structural failure** (no branch / no commits) → re-issue `/codex:rescue` with corrective instructions. Don't review nothing.
-2. **Codex reported it couldn't complete** → bring the blocker back to the user, possibly amend spec, then `--resume`.
-3. **Acceptance commands failed** → this is a Phase 2 problem, not a review problem. Have Codex fix it via `--resume`.
+### Main session verify + commit cycle
 
-### If sanity checks pass
+```bash
+# In the host working tree (where .venv / node_modules are real)
 
-Proceed directly to Phase 3. Do not:
+# 1. Run the commands Codex listed in Section 9.1 — paste tails into Section 9.1
+<command from Section 9.1>
+# ... paste last ~30 lines under the $ <command> line ...
 
-- Comment on code quality (Reviewer's job)
-- Read the diff (bias risk)
-- Ask the user to read the diff first (defeats the purpose of having a reviewer)
+# 2. If service/UI is touched, run Section 9.2 commands — paste tails
+<service start command>
+# ... paste startup banner + ready marker ...
 
-Just say to the user:
+<curl health check>
+# ... paste status + body ...
 
-> Codex finished implementation on `feat/<SLUG>` (commit `<hash>`), acceptance commands passed. Starting review.
+# 3. If critical-path tests are touched, run Section 9.3
+<test command>
+# ... paste tail ...
+
+# 4. Commit
+git add <files from Section 2>
+git commit -m "<short message per spec>"
+```
+
+### If acceptance commands fail
+
+This is **not** a Phase 3 problem. Send back to Codex via `/codex:rescue --resume`:
+
+```
+/codex:rescue --resume
+
+Acceptance command failed:
+
+$ <command>
+<last 30 lines of output>
+
+Spec Section 5 item: <criterion>. Please fix and let me know which files changed. Same rules as before (no git, no shell execution).
+```
+
+### If sanity checks fail (Codex couldn't complete)
+
+- **No file modifications** → re-issue `/codex:rescue` with corrective instructions.
+- **Section 9 command lines empty** → re-issue, point out Rule 4.
+- **Codex reported a spec ambiguity** → bring the question to the user, amend spec, then `--resume`.
+
+Do not advance to Phase 3 with an incomplete Phase 2.
+
+### Once Phase 2 is clean
+
+Tell the user:
+
+> Codex finished implementation on `feat/<SLUG>`. I ran the acceptance commands from Section 9 — all green. Committed as `<hash>`. Starting review.
 
 Then issue the review command (see `review-prompt.md`).
