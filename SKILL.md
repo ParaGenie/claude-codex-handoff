@@ -139,7 +139,8 @@ Critical: the rescue prompt must include the "no git, no shell execution" rules 
 
 - **Do not read the diff.** Reading creates implementation bias that pollutes Phase 3 interpretation.
 - Continue discussing other topics with the user if they want.
-- On request, run `/codex:status` to check progress.
+- **Actively poll `/codex:status` every 120 seconds** without waiting for the user to ask. After each poll, surface a one-liner to the user: `[poll T+Nmin] codex <task-id> state=<running|completed|error> last=<short summary>`. This is status metadata only — it does NOT read the diff and does not conflict with the rule above.
+- **Stall detection (Phase 3 self-heal trigger).** Track `state` + `last-message` hash across polls. "No progress" = `elapsed` advances but `state` and `last-message` hash stay identical across two consecutive polls (~4 min). Combined with an explicit `error / timeout / failed` state, this is the stuck signal. For Phase 2 (rescue) stalls, hand the call back to the user (see `rescue-prompt.md` § "If Codex rescue stalls"). For Phase 3 (review) stalls, follow the self-heal decision tree in `review-prompt.md` § "If Review Stalls".
 - On request, run `/codex:cancel` to abort.
 
 ### 2c. Main session: post-Codex verify + commit
@@ -185,23 +186,40 @@ Read `review-prompt.md` for the full template. It accepts `--base <ref>` for bra
 ### Decision tree on review report
 
 ```
-Read .agent/reviews/<slug>.review.md
+While review runs: poll /codex:status every 120s, report [poll T+Nmin] one-liner.
     │
-    ├─ PASS              → Tell user: "Review passed, safe to merge."
-    │                       Optionally summarize 0-2 nits if any worth knowing.
+    ├─ STUCK             → Review never produces a report.
+    │                       Trigger: explicit error/timeout state OR two consecutive
+    │                       polls with no progress (state + last-message hash stable
+    │                       while elapsed advances).
+    │                       1st stall in this review cycle → /codex:cancel, then
+    │                         re-issue /codex:adversarial-review with the same args
+    │                         (treat as transient flake).
+    │                       2nd stall in the same review cycle → /codex:cancel, then
+    │                         spawn general-purpose subagent to take over the review
+    │                         (no further codex retries this cycle).
+    │                       Full decision tree + fallback subagent prompt template:
+    │                         see review-prompt.md § "If Review Stalls".
+    │                       Once a report (codex or .review.fallback.md) lands, fall
+    │                       through to PASS / NEEDS_CHANGES / FAIL below.
     │
-    ├─ NEEDS_CHANGES     → For each blocker, form own judgment:
-    │                       "Reviewer says X. I think [valid / false positive] because Y.
-    │                        Recommend [accept / push back / ask user]."
-    │                       Then ask user how to proceed:
-    │                       a) /codex:rescue --resume <fix instructions>
-    │                       b) Claude fixes directly (if small)
-    │                       c) Override the blocker
-    │
-    └─ FAIL              → Likely the spec itself is flawed.
-                           Tell user: "Review failed because <reasons>. Recommend
-                            going back to Phase 1 to refine the spec." Get user agreement
-                            before re-planning.
+    └─ Read .agent/reviews/<slug>.review.md (or .review.fallback.md)
+        │
+        ├─ PASS              → Tell user: "Review passed, safe to merge."
+        │                       Optionally summarize 0-2 nits if any worth knowing.
+        │
+        ├─ NEEDS_CHANGES     → For each blocker, form own judgment:
+        │                       "Reviewer says X. I think [valid / false positive] because Y.
+        │                        Recommend [accept / push back / ask user]."
+        │                       Then ask user how to proceed:
+        │                       a) /codex:rescue --resume <fix instructions>
+        │                       b) Claude fixes directly (if small)
+        │                       c) Override the blocker
+        │
+        └─ FAIL              → Likely the spec itself is flawed.
+                               Tell user: "Review failed because <reasons>. Recommend
+                                going back to Phase 1 to refine the spec." Get user agreement
+                                before re-planning.
 ```
 
 ### Critical: filter reviewer noise
@@ -285,6 +303,11 @@ Right: main session creates branch before `/codex:rescue`, Codex only edits file
 
 Wrong: skip the verify step in Phase 2c, hand straight to review — reviewer cannot execute commands, so it returns `EVIDENCE_MISSING` blockers across the board, wasted review run.
 Right: main session fills Section 9.1 / 9.2 / 9.3 before `/codex:adversarial-review`. The reviewer's verdict quality is bounded by the evidence you give it.
+
+### ❌ Silently waiting while background Codex runs
+
+Wrong: kick off `/codex:rescue --background` or `/codex:adversarial-review --background`, then go quiet until the user asks "is it done yet?". The main session looks dead and silent stalls go undetected for 20+ minutes.
+Right: main session polls `/codex:status` every 120s without prompting, reports `[poll T+Nmin] state=...` each tick. If two consecutive polls show no progress (state + last-message hash stable) OR status returns `error / timeout / failed`: Phase 3 (review) takes the self-heal branch in `review-prompt.md` § "If Review Stalls"; Phase 2 (rescue) hands the call back to the user per `rescue-prompt.md` § "If Codex rescue stalls" (rescue does NOT auto-fall-back to a subagent — that would break the double-model implementation split).
 
 ---
 

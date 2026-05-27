@@ -131,8 +131,9 @@ Other models exposed by the plugin (`gpt-5.4-mini`, `gpt-5.3-codex`, `spark` ali
 ## What Claude Should Do While Codex Works
 
 - **Do not read the diff.** Diff-reading creates implementation bias that contaminates Phase 3 review interpretation.
-- Continue conversation with user on other topics if they want.
-- If user asks status, run `/codex:status`.
+- **Poll `/codex:status` every 120 seconds proactively** — do not wait for the user to ask. After each poll, surface a one-liner: `[poll T+Nmin] codex <task-id> state=<running|completed|error> last=<short summary>`. `/codex:status` only returns status metadata (state, elapsed, last message), it does NOT read the diff — so the "do not read the diff" rule above is unaffected.
+- Track `state` + `last-message` hash across polls to detect stalls (see "If Codex rescue stalls" below).
+- Continue conversation with user on other topics if they want — the poll cadence runs alongside.
 - If user wants to abort, run `/codex:cancel`.
 - Do not preemptively start writing the review prompt — wait until Phase 2 actually finishes.
 
@@ -198,6 +199,27 @@ Spec Section 5 item: <criterion>. Please fix and let me know which files changed
 - **Codex reported a spec ambiguity** → bring the question to the user, amend spec, then `--resume`.
 
 Do not advance to Phase 3 with an incomplete Phase 2.
+
+### If Codex rescue stalls
+
+**Stuck signal (either is sufficient):**
+
+1. `/codex:status` returns `error / timeout / failed` explicitly.
+2. Two consecutive polls (≈4 min) show no progress: `elapsed` advances, but `state` and `last-message` hash stay identical — Codex is spinning in place.
+
+**Why rescue does NOT auto-fall-back to a subagent (unlike Phase 3 review):**
+
+Rescue's deliverable is *source-file edits*. Letting a Claude-side subagent take over implementation would collapse the codex-handoff double-model split (Codex implements, Claude/Codex reviews) into single-model write-and-grade — exactly what this workflow exists to avoid. So rescue stalls always hand the call back to the user; only Phase 3 (review) has a built-in fallback path.
+
+**Procedure when a rescue stall is detected:**
+
+1. `/codex:cancel` to release the stuck job.
+2. Tell the user (one paragraph, no panic): "Rescue stuck — `<state>` for ~`<minutes>`m. Cancelled. Options:" then list:
+   - `(a) /codex:rescue --resume <hint>` — continue the same thread with extra steering (cheapest if Codex was *almost* there).
+   - `(b) /codex:rescue --fresh <full prompt>` — abandon the stuck thread and start clean (use if (a) loops again).
+   - `(c) Pause and you take over the implementation manually` — for tiny remaining pieces.
+   - `(d) Override and hand to a general-purpose Claude subagent` — explicitly flag the trade-off: "this breaks the double-model split, only do it if Codex is clearly off the rails."
+3. Wait for the user's choice before proceeding. Do NOT auto-pick (d).
 
 ### Once Phase 2 is clean
 

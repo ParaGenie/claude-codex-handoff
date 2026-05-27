@@ -179,6 +179,93 @@ If implementation hasn't been pushed to a branch yet (rare in this workflow, but
 
 ---
 
+## What Claude Should Do While Review Runs
+
+- **Poll `/codex:status` every 120 seconds proactively** — do not wait for the user to ask. After each poll, surface a one-liner to the user: `[poll T+Nmin] codex <task-id> state=<running|completed|error> last=<short summary>`.
+- Track `state` + `last-message` hash across polls — needed for stall detection (next section).
+- Do NOT read the in-progress review report; it pollutes your own triage in Step 1 of "Interpreting the Report".
+- Continue conversation with the user on other topics — the poll cadence runs alongside.
+
+---
+
+## If Review Stalls
+
+Unlike Phase 2 (rescue), Phase 3 (review) has a built-in self-heal path because the deliverable is a *judgment report*, not source-file edits — and a general-purpose Claude subagent with full shell + git access can produce that judgment without breaking the double-model implementation split.
+
+### Stuck signal (either is sufficient)
+
+1. `/codex:status` returns `error / timeout / failed` explicitly.
+2. Two consecutive polls (≈4 min) show no progress: `elapsed` advances, but `state` and `last-message` hash stay identical.
+
+### Self-heal decision tree
+
+```
+Stuck signal triggered in this review cycle
+    │
+    ├─ 1st stall this cycle
+    │     → /codex:cancel
+    │     → re-issue /codex:adversarial-review --background with the same args
+    │     → treat as transient flake (network blip, sandbox hiccup, CoT loop)
+    │     → resume 120s polling
+    │
+    └─ 2nd stall this cycle
+          → /codex:cancel
+          → spawn general-purpose subagent to take over the review (template below)
+          → do NOT retry codex again in this cycle
+          → wait for subagent's report, then drop back into "Interpreting the Report"
+```
+
+### Fallback subagent template
+
+When the 2nd stall fires, invoke:
+
+```
+Agent(
+  subagent_type="general-purpose",
+  description="Fallback adversarial review after codex stalled",
+  prompt=<the template below>
+)
+```
+
+Template body (substitute `<SLUG>`, `<SPEC_PATH>`, `<BASE_BRANCH>`, `<FOCUS_AREAS>`):
+
+```
+You are reviewing branch `feat/<SLUG>` against the spec at <SPEC_PATH>. The
+previous Codex review attempt stalled twice; you are the fallback reviewer.
+
+You have full shell + git access. Use it:
+- Run `git diff <BASE_BRANCH>...HEAD` to read the full branch diff yourself.
+- Re-run spec Section 9.1 / 9.2 / 9.3 acceptance commands in the host working
+  tree. Cross-check the pasted §9 evidence against what you actually observe.
+  If the pasted evidence and your re-run disagree (different command tail,
+  different exit code, different screenshot state), that disagreement IS a
+  blocker — call it out explicitly with both observations side-by-side.
+
+[... paste the body of the Standard Template here, minus the sandbox-rule
+paragraph that starts with "Command-execution rules in the sandbox:" — those
+restrictions are Codex-specific and do not apply to you. Keep the Required
+checks (1-8), Additional pressure-test angles, Output format, and Verdict
+rules verbatim. <FOCUS_AREAS> still applies. ...]
+
+Write the report to .agent/reviews/YYYY-MM-DD-<SLUG>.review.fallback.md (note
+the `.fallback` suffix — it distinguishes a Claude-side fallback review from
+a codex-produced review on disk and in commit history).
+
+This review is read-only — do not modify source code, do not commit, do not
+switch branches. (You may run build/test/lint commands for verification, which
+codex couldn't — that's the whole reason you're the fallback.)
+```
+
+### After the fallback report lands
+
+Read `.agent/reviews/<slug>.review.fallback.md` and drop straight into the "Interpreting the Report" section below — the PASS / NEEDS_CHANGES / FAIL triage rules are identical. When relaying to the user, mention the fallback path in one line: "Codex review stalled twice; fallback review by general-purpose subagent. Verdict still actionable, but the model independence is weaker than a fresh-Codex review (Claude reviewed Claude-orchestrated work)."
+
+### Trade-off note
+
+Fallback review loses the "fresh second model" property that makes the standard Phase 3 valuable. If the change is high-stakes (money/billing/auth/migrations) and both codex attempts stalled, consider asking the user whether to ship on the fallback verdict or wait and retry codex from a clean state — explicitly surface the choice rather than auto-shipping.
+
+---
+
 ## Interpreting the Report
 
 When the review report arrives (read it from `.agent/reviews/<slug>.review.md`):
