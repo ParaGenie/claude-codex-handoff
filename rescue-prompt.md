@@ -13,22 +13,23 @@ Both are unconfigurable. Don't waste cycles trying to work around them — desig
 
 | Job | Owner |
 |---|---|
-| Create `feat/<SLUG>` branch and check it out | **Main session** (before `/codex:rescue`) |
+| Create `feat/<SLUG>` branch and check it out | **Main agent** (before `/codex:rescue`) |
 | Modify source files per spec | **Codex sandbox** |
 | List acceptance commands in spec Section 9 | **Codex sandbox** |
-| Run acceptance commands, paste output | **Main session** (after Codex finishes) |
-| `git add` + `git commit` | **Main session** |
-| Browser screenshot for UI tasks (Section 9.2) | **User** (handed off by main session) |
+| Run acceptance commands | **Host subagent** (spawned by the main agent after Codex finishes) |
+| Record command output into Section 9 | **Main agent** (artifact-authoring, not a code edit) |
+| `git add` + `git commit` | **Main agent** (git is the orchestration glue) |
+| Browser screenshot for UI tasks (Section 9.2) | **User** (handed off by main agent) |
 
-The handoff template below enforces this split. Codex stays in its lane (file edits), main session does the rest.
+The handoff template below enforces this split. **The main agent never edits source or runs verify with its own hands** — Codex edits, a host subagent verifies, and the main agent orchestrates (dispatch, record results, drive git).
 
 ---
 
-## Before You Trigger Rescue (main session prep, ~30s)
+## Before You Trigger Rescue (main agent prep, ~30s)
 
-1. `git switch -c feat/<SLUG> <BASE_BRANCH>` — create the branch in the host working tree. Codex will see it as the current branch.
+1. `git switch -c feat/<SLUG> <BASE_BRANCH>` — create the branch in the host working tree (git is the one thing the main agent does directly). Codex will see it as the current branch.
 2. Confirm the spec at `.agent/specs/YYYY-MM-DD-<SLUG>.md` exists and Section 5 lists concrete, runnable acceptance commands.
-3. Confirm `.venv` / `node_modules` are installed in the host working tree (you will run verify against them later — Codex will not).
+3. Confirm `.venv` / `node_modules` are installed in the host working tree (the verify subagent will run against them later — Codex will not).
 
 ---
 
@@ -42,17 +43,17 @@ Substitute `<SLUG>`, `<SPEC_PATH>`, and `<BASE_BRANCH>` then issue:
 Implement strictly according to <SPEC_PATH>.
 
 Rules:
-1. The main session already checked out branch `feat/<SLUG>` for you. Do NOT run any git command — your sandbox blocks all writes to `.git/`. No `git switch / branch / add / commit / restore / stash / reset / checkout`. Just edit files.
+1. The main agent already checked out branch `feat/<SLUG>` for you. Do NOT run any git command — your sandbox blocks all writes to `.git/`. No `git switch / branch / add / commit / restore / stash / reset / checkout`. Just edit files.
 2. Only modify files listed in spec Section 2 ("Files to modify" / "Files to create"). Do not edit anything else, even if you notice a bug or smell.
 3. Strictly observe spec Section 4 ("Do NOT"). Treat every bullet as a hard prohibition.
-4. **Do NOT execute acceptance commands.** Your sandbox cannot see `.venv` / `node_modules`, so `pytest`, `npm run build`, `ruff`, etc. will all fail with `command not found`. Instead: into spec Section 9.1 / 9.2 / 9.3, paste the **exact command lines** the main session should run (one per acceptance criterion in Section 5). Leave the output blocks empty under `$ <command>` — the main session fills them.
+4. **Do NOT execute acceptance commands.** Your sandbox cannot see `.venv` / `node_modules`, so `pytest`, `npm run build`, `ruff`, etc. will all fail with `command not found`. Instead: into spec Section 9.1 / 9.2 / 9.3, paste the **exact command lines** the host side should run (one per acceptance criterion in Section 5). Leave the output blocks empty under `$ <command>` — the host side fills them.
 5. Do NOT try to enable feature flags, change `.env*` files, or modify production config.
 6. Do NOT write compatibility code unless spec Section 8 (Compatibility Exemption Registry) is filled with a justified entry first. If you encounter what looks like a legitimate compat need mid-task, stop and report — do not improvise.
 7. When done, report:
    - Files you modified / created (file paths only, no diff dump)
    - Which spec sections you addressed (Section 2 line numbers / Section 3 bullet numbers)
-   - The exact command lines you wrote into Section 9.1 / 9.2 / 9.3 (so the main session can run them)
-   - Any spec ambiguity you resolved and how (so the main session can confirm or push back)
+   - The exact command lines you wrote into Section 9.1 / 9.2 / 9.3 (so the host side can run them)
+   - Any spec ambiguity you resolved and how (so the main agent can confirm or push back)
 8. If you encounter ambiguity in the spec, stop and report — do not improvise. List the specific question and which spec line is unclear.
 
 Acceptance commands must cover three tiers per spec Section 5:
@@ -60,16 +61,16 @@ Acceptance commands must cover three tiers per spec Section 5:
 - 5.2 Runtime verification (when changes touch service/UI) → command lines into Section 9.2
 - 5.3 Unit tests (when changes touch critical paths) → command lines into Section 9.3
 
-Do NOT assume tests will pass. You are not running them. The main session will run them and report failures back to you via `/codex:rescue --resume` if needed.
+Do NOT assume tests will pass. You are not running them. A host subagent will run them and the main agent will report failures back to you via `/codex:rescue --resume` if needed.
 ```
 
-### What the main session does after Codex finishes
+### What the main agent does after Codex finishes
 
 1. Read `/codex:result` to confirm files were modified.
-2. Run the command lines Codex pasted into Section 9.1 / 9.2 / 9.3 in the host working tree.
-3. Paste the actual tails (last 20-30 lines per command) under each `$ <command>` in Section 9.
+2. **Spawn a host subagent** to run the command lines Codex pasted into Section 9.1 / 9.2 / 9.3 in the host working tree — the main agent does not run them itself. Hand the subagent the command lines; it reports the tails back.
+3. Record the actual tails (last 20-30 lines per command) under each `$ <command>` in Section 9 (recording into the spec artifact is orchestration, not a code edit).
 4. For UI changes: hand off to the user for the screenshot + console + network triple (Section 9.2). Background sessions cannot drive a browser.
-5. `git add <Section-2-files>` + `git commit -m "<task>: implement per spec"` on `feat/<SLUG>`.
+5. `git add <Section-2-files>` + `git commit -m "<task>: implement per spec"` on `feat/<SLUG>` — git stays with the main agent.
 6. If any acceptance command failed, do not advance to Phase 3 — go back to Codex via `/codex:rescue --resume` with the failure paste.
 
 ---
@@ -101,11 +102,11 @@ Address the blockers listed in <REVIEW_PATH>:
 1. <Blocker 1 — specific instruction>
 2. <Blocker 2 — specific instruction>
 
-Stay on branch `feat/<SLUG>` (main session already on it). Same rules as before:
+Stay on branch `feat/<SLUG>` (main agent already on it). Same rules as before:
 - Do not run any git command
-- Do not execute acceptance commands — update Section 9 command lines if they need to change, main session re-runs them
+- Do not execute acceptance commands — update Section 9 command lines if they need to change, the host side re-runs them
 - Do not expand scope beyond the blockers above
-- Report what you changed and which Section 9 commands the main session should re-run
+- Report what you changed and which Section 9 commands the host side should re-run
 ```
 
 Note: `--resume` continues the latest Codex thread for this repo, preserving context. Faster than `--fresh` for follow-ups.
@@ -143,36 +144,36 @@ Other models exposed by the plugin (`gpt-5.4-mini`, `gpt-5.3-codex`, `spark` ali
 
 After `/codex:result` returns:
 
-### Sanity check (before running verify yourself)
+### Sanity check (before spawning the verify subagent)
 
 - [ ] Codex reported a list of modified / created files matching spec Section 2?
 - [ ] Codex pasted command lines into Section 9.1 / 9.2 / 9.3?
 - [ ] Codex did NOT report attempting git or shell commands (those should have been rejected by sandbox)?
 - [ ] Codex did NOT report "I couldn't do X because Y" — if so, address the blocker before proceeding?
 
-If sanity check passes, **the main session takes over**:
+If sanity check passes, **the main agent orchestrates verify (via subagent) then commits**:
 
-### Main session verify + commit cycle
+### Verify (host subagent) + commit (main agent) cycle
+
+The main agent spawns a host subagent and hands it the Section 9 command lines. The subagent runs them in the host working tree and reports the tails; the main agent records each tail into Section 9 and then commits. The main agent itself runs none of the verify commands.
 
 ```bash
-# In the host working tree (where .venv / node_modules are real)
+# Commands the VERIFY SUBAGENT runs in the host working tree
+# (where .venv / node_modules are real) and reports back:
 
-# 1. Run the commands Codex listed in Section 9.1 — paste tails into Section 9.1
+# 1. Section 9.1 static build → subagent reports tail, main agent records into 9.1
 <command from Section 9.1>
-# ... paste last ~30 lines under the $ <command> line ...
 
-# 2. If service/UI is touched, run Section 9.2 commands — paste tails
+# 2. If service/UI is touched, Section 9.2 commands → tail recorded into 9.2
 <service start command>
-# ... paste startup banner + ready marker ...
-
 <curl health check>
-# ... paste status + body ...
 
-# 3. If critical-path tests are touched, run Section 9.3
+# 3. If critical-path tests are touched, Section 9.3
 <test command>
-# ... paste tail ...
+```
 
-# 4. Commit
+```bash
+# The MAIN AGENT commits once Section 9 is recorded (git stays on the main agent):
 git add <files from Section 2>
 git commit -m "<short message per spec>"
 ```
@@ -225,6 +226,6 @@ Rescue's deliverable is *source-file edits*. Letting a Claude-side subagent take
 
 Tell the user:
 
-> Codex finished implementation on `feat/<SLUG>`. I ran the acceptance commands from Section 9 — all green. Committed as `<hash>`. Starting review.
+> Codex finished implementation on `feat/<SLUG>`. A host subagent ran the acceptance commands from Section 9 — all green; I recorded the tails into the spec. Committed as `<hash>`. Starting review.
 
 Then issue the review command (see `review-prompt.md`).

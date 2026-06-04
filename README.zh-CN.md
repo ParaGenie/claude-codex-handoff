@@ -36,10 +36,11 @@ Codex CLI 实现速度快、能稳定后台跑、并且开一个全新会话时�
                            │ 你回复 "approved"
                            ▼
 ┌────────────────────────────────────────────────────────────┐
-│  阶段 2 — 实现   （拆分：Codex 改文件，Claude 验证）       │
-│  Claude：git switch -c feat/<slug>                         │
-│  Codex： 改源码 + 把验收命令行写进 spec §9（不跑 git/命令）│
-│  Claude：跑 §9 命令 → 粘贴输出 → git commit                │
+│  阶段 2 — 实现   （Codex 改文件，subagent 验证）          │
+│  Claude：  git switch -c feat/<slug>                       │
+│  Codex：   改源码 + 把验收命令行写进 spec §9（不跑 git/命令）│
+│  Subagent：在 host 上跑 §9 命令 → 回报输出尾巴             │
+│  Claude：  记录尾巴进 §9 → git commit                      │
 └──────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -58,10 +59,11 @@ Codex CLI 实现速度快、能稳定后台跑、并且开一个全新会话时�
 
 ### 为什么阶段 2 要拆开
 
-Codex CLI 的 sandbox 有两条不可配置的限制：`.git/` 只读（不能 `commit` / `branch`）、`.venv` / `node_modules` 在 sandbox 内不可见（不能 `pytest` / `npm run build`）。所以工作流沿这条边界拆分阶段 2：
+Codex CLI 的 sandbox 有两条不可配置的限制：`.git/` 只读（不能 `commit` / `branch`）、`.venv` / `node_modules` 在 sandbox 内不可见（不能 `pytest` / `npm run build`）。在此之上，本工作流还有一条凌驾一切的规范：**Claude 主 agent 只负责调度和协同沟通，绝不亲手改目标代码库、也不亲手跑 verify。** 改实现文件 → 交给 Codex；跑 verify → 交给 spawn 出来的 host subagent。所以阶段 2 这样拆：
 
 - **Codex** 干 sandbox 允许的事：改源码、把验证方应该跑的**精确命令行**写进 spec Section 9
-- **Claude 主会话** 干主仓库工作树才能干的事：git 操作 + 跑 verify（主工作树里 `.venv` / `node_modules` 是真的）、把命令输出粘贴回 Section 9、提交
+- **host subagent**（由主 agent spawn）在主仓库工作树里跑这些命令（工作树里 `.venv` / `node_modules` 是真的），把输出尾巴回报给主 agent
+- **Claude 主 agent** 自己不碰源码、不跑 verify：它负责派活、把 subagent 回报的尾巴记录进 Section 9、驱动 git（建分支 + commit —— 这是它唯一亲手做的事，因为 sandbox 干不了、且 git 是调度的黏合剂）、做判断
 
 到阶段 3，评审方拿到的是完整 artifact：插件自动注入的 diff + Section 9 里真实命令尾巴。评审方对照两者评估，不再尝试自己重跑 —— 反正它也跑不了。
 
@@ -80,7 +82,7 @@ Codex CLI 的 sandbox 有两条不可配置的限制：`.git/` 只读（不能 `
 - 探索性提问（"给我看看 X 是怎么工作的"）
 - 仅讨论不落代码的对话轮
 
-🟡 **中等粒度任务**（< 30 行、单文件、无业务逻辑）：Claude 直接动手实现，仅跑 `/codex:review` 做一次轻量兜底检查 —— 跳过阶段 1 与阶段 2。
+🟡 **中等粒度任务**（< 30 行、单文件、无业务逻辑）：主 agent 仍然不亲手改文件 —— 它 spawn 一个 subagent 改文件、再 spawn 一个 host subagent 验证，然后跑 `/codex:review` 做一次轻量兜底检查后再提交。省掉的是 `/codex:rescue` 重量级 spec 交接（阶段 1 与阶段 2），但"主 agent 只调度"的边界不破。
 
 ## 仓库文件清单
 

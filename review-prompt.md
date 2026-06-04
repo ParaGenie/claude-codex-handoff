@@ -2,15 +2,15 @@
 
 > Read this file when entering Phase 3 of `codex-handoff` workflow. Use the template below to trigger an adversarial review of Codex's implementation.
 
-## Before You Trigger Review (main session prep, ~1 min)
+## Before You Trigger Review (main agent prep, ~1 min)
 
 `/codex:adversarial-review --base <ref>` already injects the full branch diff, commit log, and diff-stat into Codex's prompt context (handled by the plugin's companion script, run in the **main Claude session** — not inside the Codex sandbox). You do **not** need to bundle a diff yourself.
 
 But because Codex's sandbox cannot see `.venv` / `node_modules` / `.git`, Codex cannot independently run acceptance commands or `git diff` from within review. The reviewer can only judge what is **already in its prompt**. That makes spec Section 9 (DoD Evidence) load-bearing:
 
-Before triggering review, the **main session** must:
+Before triggering review, the **main agent** must ensure (verify is run by a host subagent, recorded by the main agent — the main agent never runs verify itself):
 
-1. Run every acceptance command from spec Section 5 in the host working tree and paste the tail output into spec Section 9.1 / 9.2 / 9.3.
+1. Every acceptance command from spec Section 5 was run in the host working tree (by the verify subagent) and its tail output recorded into spec Section 9.1 / 9.2 / 9.3.
 2. Commit Section 9 alongside the implementation commit (or as a follow-up commit on the same `feat/<SLUG>` branch).
 3. For UI changes, attach the screenshot + console + network triple (Section 9.2). Reviewer cannot infer these — if absent it must mark `NEEDS_CHANGES`.
 
@@ -27,7 +27,7 @@ Substitute `<SLUG>`, `<SPEC_PATH>`, `<BASE_BRANCH>`, and `<FOCUS_AREAS>` then is
 
 You are reviewing branch `feat/<SLUG>` against the spec at <SPEC_PATH>.
 
-The branch diff, commit log, and diff-stat are already in your `<repository_context>` (injected by the plugin from the main session's git working tree). Use them as primary evidence.
+The branch diff, commit log, and diff-stat are already in your `<repository_context>` (injected by the plugin from the main agent's git working tree). Use them as primary evidence.
 
 Command-execution rules in the sandbox:
 - Do NOT run git **write** commands: `commit`, `add`, `switch`, `branch`, `restore`, `stash`, `reset`, `checkout`. The sandbox blocks writes to `.git/`.
@@ -38,13 +38,13 @@ Your job is to challenge this implementation, not approve it by default.
 
 Required checks (all evidence-based, no command execution):
 
-1. **Acceptance criteria coverage**: open <SPEC_PATH> Section 5 (acceptance criteria) and Section 9 (DoD Evidence already pasted by the main session). For each Section 5 item, mark PASS / FAIL / EVIDENCE_MISSING based solely on what is pasted in Section 9. EVIDENCE_MISSING is a blocker — do not pass it.
+1. **Acceptance criteria coverage**: open <SPEC_PATH> Section 5 (acceptance criteria) and Section 9 (DoD Evidence already pasted by the main agent). For each Section 5 item, mark PASS / FAIL / EVIDENCE_MISSING based solely on what is pasted in Section 9. EVIDENCE_MISSING is a blocker — do not pass it.
 2. **Do-NOT violations**: identify any spec Section 4 item that the diff violates.
 3. **Scope creep**: the changed-file list is in your `<repository_context>`. Cross-reference with spec Section 2 "Files to modify" / "Files to create". Anything outside the registered set (and not logged under Section 6 follow-ups) is out-of-scope.
 4. **Focus areas for this change**: <FOCUS_AREAS>
 5. **Compatibility-code drift**: grep your in-context diff for `legacy` / `fallback` / `deprecated` / `oldFormat` / `兼容` / `旧版` and semantic patterns like `if (version < ...)` or `try { ... } catch (Old...)`. Cross-reference with spec Section 8 — any pattern present that isn't registered = violation.
 6. **Project-specific whitelist (if applicable)**: if the project has a whitelist spec (e.g. allowed UI components, allowed library calls, allowed API patterns) referenced from CLAUDE.md or project spec, grep the in-context diff for usage and cross-check.
-7. **DoD evidence completeness**: spec Section 9.1 / 9.2 / 9.3 must contain real command tails pasted by the main session (not "I ran it" claims, not empty placeholders). 9.2 requires the screenshot + console + network triple for UI changes. Missing applicable subsection = NEEDS_CHANGES, not PASS.
+7. **DoD evidence completeness**: spec Section 9.1 / 9.2 / 9.3 must contain real command tails pasted by the main agent (not "I ran it" claims, not empty placeholders). 9.2 requires the screenshot + console + network triple for UI changes. Missing applicable subsection = NEEDS_CHANGES, not PASS.
 8. **Spec compliance traceability**: every finding must cite `(<SPEC_PATH> §N)` or `(diff hunk @path/file.ext:line)`. Findings without traceable citation are not acceptable.
 
 Additional pressure-test angles (apply to the diff text, not by running code):
@@ -81,9 +81,9 @@ Earlier versions of this template instructed Codex to "actually run the commands
 1. Hides `.venv` and `node_modules` from the filtered working tree (so `pytest`, `ruff`, `npm run build`, `node_modules/.bin/*` all `command not found`)
 2. Blocks writes to `.git/` (so `git commit / add / switch / branch / reset` fail on `index.lock`). Read-only `git diff / log / show` are not blocked.
 
-Asking Codex to run build/test commands inside review produces noise: it tries, fails, falls back to guessing, and the verdict becomes less reliable than if it had simply read the evidence the main session already gathered.
+Asking Codex to run build/test commands inside review produces noise: it tries, fails, falls back to guessing, and the verdict becomes less reliable than if it had simply read the evidence the main agent already gathered.
 
-The fix: the **main session** runs verify in the host working tree (full `.venv` / `node_modules` access) and pastes the tails into spec Section 9. Codex review then evaluates *whether the pasted evidence demonstrates the acceptance criterion*, which is a stronger consistency check than "I ran it and it passed."
+The fix: a **host subagent** (spawned by the main agent) runs verify in the host working tree (full `.venv` / `node_modules` access) and reports the tails, which the main agent records into spec Section 9. Codex review then evaluates *whether the recorded evidence demonstrates the acceptance criterion*, which is a stronger consistency check than "I ran it and it passed."
 
 ### Large-diff caveat
 
@@ -165,7 +165,7 @@ For tasks that don't warrant a full adversarial pass (e.g. Claude implemented di
 /codex:review --base <BASE_BRANCH> --background
 ```
 
-Note: `/codex:review` is not steerable and does not take focus text. Use only for low-risk sanity checks. Same sandbox limits apply — main session should still have filled Section 9 before triggering.
+Note: `/codex:review` is not steerable and does not take focus text. Use only for low-risk sanity checks. Same sandbox limits apply — main agent should still have filled Section 9 before triggering.
 
 ### Variation: review without a base branch (uncommitted changes)
 
@@ -278,7 +278,7 @@ When the review report arrives (read it from `.agent/reviews/<slug>.review.md`):
 2. Form an independent opinion: is this actually a problem in this context?
 3. Categorize: **valid** / **false positive** / **uncertain — need user input**
 
-Pay special attention to `EVIDENCE_MISSING` items — they often mean "main session forgot to fill Section 9.x", not "the implementation is broken." If so, fix by filling Section 9 + re-trigger review, not by sending Codex back to fix code.
+Pay special attention to `EVIDENCE_MISSING` items — they often mean "main agent forgot to fill Section 9.x", not "the implementation is broken." If so, fix by filling Section 9 + re-trigger review, not by sending Codex back to fix code.
 
 ### Step 2: Filter, then present to user
 
@@ -297,7 +297,7 @@ Reviewer flagged N blockers. My assessment:
 1. <Blocker 1 summary>
    → My take: valid / false positive / evidence-gap (Section 9.x missing) / need your call
    → If valid code issue: recommend fix via /codex:rescue --resume OR Claude fixes directly
-   → If evidence gap: main session fills Section 9.x, re-trigger review (no Codex re-run needed)
+   → If evidence gap: main agent fills Section 9.x, re-trigger review (no Codex re-run needed)
    → If false positive: reasoning is <why>
 
 2. <Blocker 2 summary>
@@ -340,7 +340,7 @@ If Phase 2 didn't produce a commit (Codex failed, was cancelled, etc.), there's 
 
 ### ❌ Triggering review with empty Section 9
 
-Section 9 evidence is the **only** ground truth the reviewer has for acceptance criteria — the sandbox cannot re-run commands. Main session must fill it before triggering. Otherwise the verdict is unreliable and you'll just get back `EVIDENCE_MISSING` blockers across the board.
+Section 9 evidence is the **only** ground truth the reviewer has for acceptance criteria — the sandbox cannot re-run commands. The main agent must ensure it's filled (via the verify subagent) before triggering. Otherwise the verdict is unreliable and you'll just get back `EVIDENCE_MISSING` blockers across the board.
 
 ### ❌ Asking Codex to re-run build/test commands inside review
 

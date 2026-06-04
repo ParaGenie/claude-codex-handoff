@@ -12,17 +12,17 @@ Coordinate Claude Code (planner) + Codex CLI (implementer/reviewer) through the 
 
 | Role | Who | How | What |
 |---|---|---|---|
-| **Planner** | Claude (you) | Natural dialogue | Probe code, write spec, interpret reviews, make calls |
+| **Planner / orchestrator** | Claude (main agent, you) | Natural dialogue + `/codex:*` + spawn subagents | Probe code, write spec, dispatch work, poll status, record results, interpret reviews, drive git (branch + commit) |
 | **Implementer** | Codex | `/codex:rescue` | Read spec, change code, list acceptance commands in spec Section 9 |
-| **Verifier + git driver** | Claude (main session) | direct shell + Edit | Pre-create `feat/<SLUG>` branch, run acceptance commands, paste output into Section 9, `git add` + `git commit` |
+| **Verifier** | Claude subagent (host) | spawned subagent | Run Section 9 acceptance commands in the host working tree, report output tails back to the main agent |
 | **Reviewer** | Codex (fresh session) | `/codex:adversarial-review` | Evaluate diff + Section 9 evidence against spec, write report |
 
-**Core principle:** Claude does not write implementation code directly unless the task is truly small (< 30 lines, single file, no business logic). Claude's value is in planning, interpretation, judgment, and bridging the Codex sandbox limits (see below).
+**Core principle: the main agent only dispatches and coordinates — it never touches the target codebase or runs verify with its own hands.** Every implementation-file edit goes to Codex (`/codex:rescue`); every verify-command execution goes to a spawned host subagent. This holds even for a one-line fix — there is no "small enough to just do it myself" exception. The main agent's hands stay on: planning, interpretation, judgment, authoring the spec/review artifacts (recording the verifier's output into Section 9 is artifact-authoring, not a code edit), and driving git (branch + commit — Codex's sandbox cannot, and git is the orchestration glue). This keeps the double-model split intact (one model writes, another grades) and matches the Codex sandbox limits below.
 
 **Codex sandbox limits (shape the division of labor above):**
 
-1. `.git/` is read-only — Codex cannot `switch / branch / add / commit`. The main session creates `feat/<SLUG>` before `/codex:rescue` and commits after.
-2. `.venv` / `node_modules` are not mounted into the sandbox — Codex cannot run `pytest`, `npm run build`, `ruff`, etc. The main session executes acceptance commands in the host working tree and pastes output into spec Section 9.
+1. `.git/` is read-only — Codex cannot `switch / branch / add / commit`. The main agent creates `feat/<SLUG>` before `/codex:rescue` and commits after (git stays with the main agent — it is the orchestration glue, not a code edit).
+2. `.venv` / `node_modules` are not mounted into the sandbox — Codex cannot run `pytest`, `npm run build`, `ruff`, etc. A host subagent spawned by the main agent executes the acceptance commands in the host working tree, and the main agent records the output into spec Section 9.
 
 These limits are unconfigurable in the current Codex CLI. The workflow is designed around them rather than against them.
 
@@ -47,9 +47,9 @@ Use **full three-phase flow** for:
 
 **Middle ground** (small but non-trivial, e.g. < 30 lines single-file change):
 
-- Claude implements directly
-- Skip Phase 2 (`/codex:rescue`)
-- Still run `/codex:review` (lighter than adversarial) as a sanity check before commit
+- The main agent still does **not** edit files itself — spawn a general-purpose subagent to make the edit (fast path: skip the full `/codex:rescue` spec handoff, but the edit still happens off the main agent's hands)
+- A host subagent runs the acceptance command(s) and reports the tails
+- Still run `/codex:review` (lighter than adversarial) as a sanity check before the main agent commits
 
 ---
 
@@ -63,11 +63,12 @@ Use **full three-phase flow** for:
                            │ User explicitly confirms spec
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  PHASE 2: IMPLEMENT  (split between Codex and main session) │
-│  2a. Main:  git switch -c feat/<slug> <base>                │
-│  2b. Codex: read spec → edit files → list cmds in §9 → done │
-│             (no git, no shell execution)                    │
-│  2c. Main:  run §9 commands → paste tails → git commit      │
+│  PHASE 2: IMPLEMENT  (Codex edits, subagent verifies)      │
+│  2a. Main:    git switch -c feat/<slug> <base>              │
+│  2b. Codex:   read spec → edit files → list cmds in §9 → done│
+│               (no git, no shell execution)                  │
+│  2c. Subagent: run §9 cmds on host → report tails           │
+│      Main:    record tails into §9 → git commit             │
 └──────────────────────────┬──────────────────────────────────┘
                            │ Section 9 filled, commit on branch
                            ▼
@@ -113,7 +114,7 @@ Use kebab-case, short, descriptive. Good: `stale-items-indicator`, `order-refund
 
 ## PHASE 2: Implement
 
-### 2a. Main session: pre-flight (~30s)
+### 2a. Main agent: pre-flight (~30s)
 
 Before `/codex:rescue`:
 
@@ -143,15 +144,15 @@ Critical: the rescue prompt must include the "no git, no shell execution" rules 
 - **Stall detection (Phase 3 self-heal trigger).** Track `state` + `last-message` hash across polls. "No progress" = `elapsed` advances but `state` and `last-message` hash stay identical across two consecutive polls (~4 min). Combined with an explicit `error / timeout / failed` state, this is the stuck signal. For Phase 2 (rescue) stalls, hand the call back to the user (see `rescue-prompt.md` § "If Codex rescue stalls"). For Phase 3 (review) stalls, follow the self-heal decision tree in `review-prompt.md` § "If Review Stalls".
 - On request, run `/codex:cancel` to abort.
 
-### 2c. Main session: post-Codex verify + commit
+### 2c. Main agent: post-Codex verify (via subagent) + commit
 
 Run `/codex:result` to fetch the output. Then, **before** advancing to Phase 3:
 
 1. **Do not critique code quality.** That's the Reviewer's job in Phase 3.
 2. Read Codex's report: file list + command lines pasted into spec Section 9.1 / 9.2 / 9.3.
-3. Run each Section 9 command in the host working tree. Paste actual tails (~30 lines per command) under each `$ <command>` line in the spec.
+3. **Spawn a host subagent to run verify** — do not run the acceptance commands yourself. Hand it the Section 9 command lines; it executes them in the host working tree (where `.venv` / `node_modules` live) and reports the tails (~30 lines per command). The main agent then records each tail under the matching `$ <command>` line in the spec (recording into the spec artifact is orchestration, not a code edit).
 4. For UI tasks (Section 9.2 screenshot + console + network): hand off to the user — background sessions cannot drive a browser.
-5. `git add <Section-2-files>` + `git commit -m "<task>: implement per spec"` on `feat/<SLUG>`.
+5. `git add <Section-2-files>` + `git commit -m "<task>: implement per spec"` on `feat/<SLUG>` (git stays with the main agent).
 6. If any acceptance command failed, do not advance to Phase 3 — go back to Codex via `/codex:rescue --resume` with the failure paste. See `rescue-prompt.md` "If acceptance commands fail" section.
 
 Only when Section 9 is complete and commit is on the branch, proceed to Phase 3.
@@ -170,7 +171,7 @@ What the reviewer **cannot** do (sandbox-limited):
 - Run `pytest` / `npm run build` / lint commands (`.venv` / `node_modules` invisible)
 - Re-verify acceptance criteria by execution
 
-So the reviewer's only source of acceptance-criterion truth is **spec Section 9 evidence the main session pasted in Phase 2c**. If Section 9 is empty when you trigger review, the verdict will be unreliable.
+So the reviewer's only source of acceptance-criterion truth is **the Section 9 evidence the main agent recorded in Phase 2c** (run by the host subagent, recorded by the main agent). If Section 9 is empty when you trigger review, the verdict will be unreliable.
 
 ### Why adversarial, not regular review
 
@@ -294,20 +295,25 @@ Right: Always wait for explicit user "approved" / "通过" between phases.
 
 Wrong: `/codex:setup --enable-review-gate` — official README warns this creates long agent loops and drains usage quotas. This workflow is already gate-equivalent through Phase 3, no need.
 
+### ❌ Main agent editing implementation files or running verify directly
+
+Wrong: the main agent opens an implementation file with Edit/Write, or runs `pytest` / `npm run build` itself "because it's just one line / one command." This collapses the double-model split and violates the orchestrator boundary.
+Right: implementation edits → Codex (`/codex:rescue`), or a spawned subagent for the small-task fast path. Verify execution → a spawned host subagent that reports tails. The main agent only dispatches, records results into the spec, drives git, and judges. Authoring the spec/review markdown is the one writing the main agent keeps.
+
 ### ❌ Expecting Codex sandbox to run git or verify commands
 
 Wrong: rescue prompt says "create branch", "run pytest", "commit when done" — Codex tries, sandbox blocks, you lose 5 minutes of compute on failed attempts.
-Right: main session creates branch before `/codex:rescue`, Codex only edits files + lists commands in Section 9, main session runs verify + commits afterward. See `rescue-prompt.md` Sandbox Reality Check.
+Right: the main agent creates the branch before `/codex:rescue`, Codex only edits files + lists commands in Section 9, a host subagent runs verify and the main agent commits afterward. See `rescue-prompt.md` Sandbox Reality Check.
 
 ### ❌ Triggering Phase 3 review with empty Section 9
 
 Wrong: skip the verify step in Phase 2c, hand straight to review — reviewer cannot execute commands, so it returns `EVIDENCE_MISSING` blockers across the board, wasted review run.
-Right: main session fills Section 9.1 / 9.2 / 9.3 before `/codex:adversarial-review`. The reviewer's verdict quality is bounded by the evidence you give it.
+Right: a host subagent runs the commands and the main agent records the tails into Section 9.1 / 9.2 / 9.3 before `/codex:adversarial-review`. The reviewer's verdict quality is bounded by the evidence you give it.
 
 ### ❌ Silently waiting while background Codex runs
 
-Wrong: kick off `/codex:rescue --background` or `/codex:adversarial-review --background`, then go quiet until the user asks "is it done yet?". The main session looks dead and silent stalls go undetected for 20+ minutes.
-Right: main session polls `/codex:status` every 120s without prompting, reports `[poll T+Nmin] state=...` each tick. If two consecutive polls show no progress (state + last-message hash stable) OR status returns `error / timeout / failed`: Phase 3 (review) takes the self-heal branch in `review-prompt.md` § "If Review Stalls"; Phase 2 (rescue) hands the call back to the user per `rescue-prompt.md` § "If Codex rescue stalls" (rescue does NOT auto-fall-back to a subagent — that would break the double-model implementation split).
+Wrong: kick off `/codex:rescue --background` or `/codex:adversarial-review --background`, then go quiet until the user asks "is it done yet?". The main agent looks dead and silent stalls go undetected for 20+ minutes.
+Right: main agent polls `/codex:status` every 120s without prompting, reports `[poll T+Nmin] state=...` each tick. If two consecutive polls show no progress (state + last-message hash stable) OR status returns `error / timeout / failed`: Phase 3 (review) takes the self-heal branch in `review-prompt.md` § "If Review Stalls"; Phase 2 (rescue) hands the call back to the user per `rescue-prompt.md` § "If Codex rescue stalls" (rescue does NOT auto-fall-back to a subagent — that would break the double-model implementation split).
 
 ---
 

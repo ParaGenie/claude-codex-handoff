@@ -71,6 +71,81 @@
 ## 7. Extra Notes for Implementer
 
 <Optional. Stack quirks, preferred patterns, files to reference.>
+
+## 8. Compatibility Exemption Registry (default: empty)
+
+| What's being compatible-with | Why this is a permanent need, not a temporary bridge | Cleanup timeline | Owner |
+|---|---|---|---|
+| (default: none) | | | |
+
+Default empty = this task introduces no compatibility code. If the table stays empty but the implementation contains any of the following patterns, reviewer must flag as a violation:
+
+- `if (legacy*)` / `if (oldField*)` / `if (version < ...)`
+- Comments mentioning `legacy` / `fallback` / `deprecated` / `old format` / `backwards-compat`
+- `try { ... } catch (OldFormat...)` for legacy-format fallback
+- Conditional branches keyed off historical state without an entry above
+
+Before writing such code, ask: "Is this a real, permanent business constraint, or am I inventing defensive logic?" If unsure, leave it out and let review push back.
+
+## 9. Definition of Done Evidence (filled at implementation time)
+
+Ownership of Section 9 is split because the Codex sandbox cannot see `.venv` / `node_modules` and cannot write to `.git`:
+
+- **Codex (implementer)** fills the **command lines** — exact shell invocations corresponding to each Section 5 acceptance criterion. Codex does NOT execute them.
+- **A host subagent** (spawned by the main agent) runs those command lines in the host working tree and reports the output tails. The **main agent records** them (~30 lines per command) under each `$ <command>` line — the main agent does not run the commands itself.
+- **Reviewer** evaluates whether the recorded output demonstrably satisfies the corresponding Section 5 criterion. "I ran it" without paste = NEEDS_CHANGES.
+
+### 9.1 Static build evidence
+
+Paste the tail (~30 lines) of each acceptance command from Section 5.1. Project-specific commands come from CLAUDE.md.
+
+\`\`\`
+$ <prerequisite command, e.g. dependency install / module install>
+<paste tail>
+
+$ <build/verify command, e.g. mvn verify / cargo build / go build>
+<paste tail>
+
+$ <typecheck / lint command, if separate>
+<paste tail>
+\`\`\`
+
+### 9.2 Runtime verification evidence (required when changes touch a running service or UI)
+
+Backend / service changes:
+
+\`\`\`
+$ <dev / serve command>
+<paste startup log including the ready marker, e.g. "Listening on:" / "Server started" / "Local: http://...">
+
+$ <health check, e.g. curl /health>
+<paste response status + body>
+\`\`\`
+
+Frontend / UI changes — all three required:
+
+\`\`\`
+$ <frontend dev command>
+<paste startup log>
+\`\`\`
+
+- **Page screenshot**: path or link to screenshot of the changed page(s)
+- **Console screenshot**: proof of no error output in browser DevTools console
+- **Network request list**: table of relevant requests with method + status (should all be 2xx)
+
+### 9.3 Unit test evidence (required when changes touch business-critical paths, per your project spec)
+
+\`\`\`
+$ <test command>
+<paste tail showing test count and pass/fail summary>
+\`\`\`
+
+List of new or modified test methods:
+- `path/to/Test#methodA` — happy path
+- `path/to/Test#methodB` — edge case
+- `path/to/Test#methodC` — failure mode
+
+If this task does not touch your project's defined "critical paths", explicitly note: "Section 9.3 not applicable — task does not touch business-critical paths."
 ```
 
 ---
@@ -160,6 +235,35 @@ Bad uses:
 - Repeating things already in `CLAUDE.md` or `karpathy-guidelines`
 - Writing pseudocode
 - Vague "be careful" warnings
+
+### Section 8 (Compatibility Exemption Registry)
+
+Default empty. If Codex sees this section empty and is tempted to write compat code, **stop** and push the question back to the planner.
+
+Legal entries look like:
+
+| What's being compatible-with | Why permanent | Cleanup | Owner |
+|---|---|---|---|
+| Webhook secrets issued before format-prefix was added | Provider documents these are valid forever | Permanent | <owner> |
+| Users created before email_verified_at column existed | Backfill cost exceeds keep-cost | After full backfill (date) | <owner> |
+
+Illegal (reviewer should bounce):
+
+- "Compat for old frontend" when frontend is in the same repo (no "old version" exists)
+- "Defensive fallback" without a concrete legacy version / field / format
+- "Just in case ..." — speculative future scenarios are not compatibility needs
+
+### Section 9 (DoD Evidence)
+
+Filled at the end of Phase 2 (IMPLEMENT). Split ownership (sandbox-imposed):
+
+- **Codex** writes the command lines into 9.1 / 9.2 / 9.3 (one per Section 5 criterion). Codex does NOT execute them — its sandbox cannot resolve `.venv/bin/*` or `node_modules/.bin/*`.
+- **A host subagent** runs the command lines in the host working tree and reports the tails; the **main agent records** them (~30 lines each) under each `$ <command>` line. The main agent never runs verify itself.
+- For UI tasks (9.2), the screenshot + console + network triple cannot be produced by Codex or the subagent — the main agent hands off to the **user** to capture them.
+
+Missing any applicable subsection = reviewer marks NEEDS_CHANGES.
+
+Reviewer evaluates the pasted output against Section 5; the sandbox does not allow the reviewer to re-run commands, so the paste is the single source of truth.
 
 ---
 

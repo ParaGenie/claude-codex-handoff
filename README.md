@@ -35,10 +35,11 @@ This skill encodes that protocol so you don't have to reinvent it every task.
                            │ you reply "approved"
                            ▼
 ┌────────────────────────────────────────────────────────────┐
-│  PHASE 2 — IMPLEMENT   (split: Codex edits, Claude verifies)│
-│  Claude:  git switch -c feat/<slug>                        │
-│  Codex:   edit files + list cmds in spec §9 (no git/shell) │
-│  Claude:  run §9 cmds → paste output → git commit          │
+│  PHASE 2 — IMPLEMENT (Codex edits, subagent verifies)      │
+│  Claude:    git switch -c feat/<slug>                      │
+│  Codex:     edit files + list cmds in spec §9 (no git/shell)│
+│  Subagent:  run §9 cmds on host → report tails             │
+│  Claude:    record tails → git commit                      │
 └──────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -57,10 +58,11 @@ All communication happens **inside one Claude Code session** via `/codex:*` slas
 
 ### Why Phase 2 is split
 
-The Codex CLI sandbox has two unconfigurable limits: `.git/` is read-only (no `commit` / `branch`), and `.venv` / `node_modules` are not visible inside the sandbox (no `pytest` / `npm run build`). So the workflow splits Phase 2 along that boundary:
+The Codex CLI sandbox has two unconfigurable limits: `.git/` is read-only (no `commit` / `branch`), and `.venv` / `node_modules` are not visible inside the sandbox (no `pytest` / `npm run build`). On top of that, this workflow holds one rule above all: **the main Claude agent only dispatches and coordinates — it never edits the target codebase or runs verify with its own hands.** Implementation edits go to Codex; verify execution goes to a spawned host subagent. So Phase 2 splits like this:
 
 - **Codex** does what its sandbox allows: edit source files and write the *exact command lines* the verifier should run, into spec Section 9.
-- **Claude main session** does git ops + verify against the host working tree (where `.venv` / `node_modules` actually live), pastes the command output into Section 9, and commits.
+- **A host subagent** (spawned by the main agent) runs those commands against the host working tree (where `.venv` / `node_modules` actually live) and reports the output tails.
+- **The Claude main agent** never touches source or runs verify itself; it dispatches, records the subagent's tails into Section 9, drives git (branch + commit — the one thing it does directly, since the sandbox can't and git is the orchestration glue), and judges.
 
 Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and Section 9 evidence (paste with real command tails). The reviewer evaluates against both without trying to re-run anything — which it couldn't, anyway.
 
@@ -79,7 +81,7 @@ Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and
 - Exploration questions ("show me how X works")
 - Discussion-only turns
 
-🟡 **For in-between tasks** (< 30 lines, single file, no business logic): Claude implements directly and runs `/codex:review` as a lighter sanity check — Phases 1 & 2 are skipped.
+🟡 **For in-between tasks** (< 30 lines, single file, no business logic): the main agent still doesn't edit files itself — it spawns a subagent to make the edit and a host subagent to verify, then runs `/codex:review` as a lighter sanity check before committing. The heavy `/codex:rescue` spec handoff (Phase 1 & 2) is skipped, but the orchestrator boundary holds.
 
 ## Files in this repo
 

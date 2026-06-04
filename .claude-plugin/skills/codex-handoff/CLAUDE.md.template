@@ -59,6 +59,8 @@ These need the project owner's personal sign-off, not agent autonomy:
 
 This project uses the **`codex-handoff` skill** — Claude plans, Codex implements and reviews.
 
+**Orchestrator rule:** the main Claude agent only dispatches and coordinates. It never edits the target codebase or runs verify with its own hands — implementation edits go to Codex (`/codex:rescue`) or a spawned subagent, verify execution goes to a spawned host subagent. The main agent keeps planning, judgment, recording results into the spec, and driving git (branch + commit).
+
 When starting any non-trivial coding task, load the `codex-handoff` skill and follow its three-phase flow (PLAN → IMPLEMENT → REVIEW).
 
 Spec artifacts live in `.agent/specs/`, review reports in `.agent/reviews/`. Both directories are committed to git as design history.
