@@ -17,9 +17,9 @@ Coordinate Claude Code (planner) + Codex CLI (implementer/reviewer) through the 
 | **Verifier** | Claude subagent (host) | spawned subagent | Run Section 9 acceptance commands in the host working tree, report output tails back to the main agent |
 | **Reviewer** | Codex (fresh session) | `/codex:adversarial-review` | Evaluate diff + Section 9 evidence against spec, write report |
 
-**Core principle: the main agent only dispatches and coordinates — it never touches the target codebase or runs verify with its own hands.** Every implementation-file edit goes to Codex (`/codex:rescue`); every verify-command execution goes to a spawned host subagent. This holds even for a one-line fix — there is no "small enough to just do it myself" exception. The main agent's hands stay on: planning, interpretation, judgment, authoring the spec/review artifacts (recording the verifier's output into Section 9 is artifact-authoring, not a code edit), and driving git (branch + commit — Codex's sandbox cannot, and git is the orchestration glue). This keeps the double-model split intact (one model writes, another grades) and matches the Codex sandbox limits below.
+**Core principle: the main agent only dispatches and coordinates — it never touches the target codebase or runs verify with its own hands.** Every implementation-file edit goes to Codex (`/codex:rescue`); every verify-command execution goes to a spawned host subagent. This holds even for a one-line fix — there is no "small enough to just do it myself" exception. The main agent's hands stay on: planning, interpretation, judgment, authoring the spec/review artifacts (recording the verifier's output into Section 9 is artifact-authoring, not a code edit), and driving git (branch + commit — Codex's sandbox cannot, and git is the orchestration glue). This keeps the double-model split intact (one model writes, another grades) and matches the Sandbox constraints below.
 
-**Sandbox constraints (shape the division of labor above):**
+### Sandbox constraints
 
 1. `.git/` is read-only — Codex cannot `switch / branch / add / commit`. The main agent creates `feat/<SLUG>` before `/codex:rescue` and commits after (git stays with the main agent — it is the orchestration glue, not a code edit).
 2. `.venv` / `node_modules` are not mounted into the sandbox — Codex cannot run `pytest`, `npm run build`, `ruff`, etc. A host subagent spawned by the main agent executes the acceptance commands in the host working tree, and the main agent records the output into spec Section 9.
@@ -88,7 +88,7 @@ Use **full three-phase flow** for:
 
 ## Cross-Session Resume Anchor
 
-Only when the workflow must cross a session boundary (context compaction, a background job wrapping up, or the user stepping away mid-phase), write `.agent/handoff.md` (gitignored). It contains transient resume state only: current phase, active slug, spec path (reference; do not copy spec content), branch + base branch, Codex task-id if any, pending blockers / failed acceptance / next action, and a `Suggested skills:` line for the next session (for example `codex-handoff` plus any project skill). Redact secrets, keys, and PII. Durable design lives in the committed spec; this file is only a resume pointer. (source: `handoff` skill)
+Only when the workflow must cross a session boundary (context compaction, a background job wrapping up, or the user stepping away mid-phase), write `.agent/handoff.md` (gitignored). It contains transient resume state only: current phase, active slug, spec path (reference; do not copy spec content), branch + base branch, Codex task-id if any, pending blockers / failed acceptance / next action, and a `Suggested skills:` line for the next session (for example `codex-handoff` plus any project skill). Redact secrets, keys, and PII. Durable design lives in the committed spec; this file is only a resume pointer. The next session deletes or overwrites `.agent/handoff.md` once it has resumed, so a stale pointer never lingers. (source: `handoff` skill)
 
 ---
 
@@ -339,7 +339,7 @@ Right: main agent polls `/codex:status` every 120s without prompting, reports `[
         └── YYYY-MM-DD-<slug>.review.md  # Review reports (commit to git)
 ```
 
-**Commit `.agent/` to git.** Specs and reviews are design history — valuable to future-you and future agents.
+**Commit `.agent/specs/` and `.agent/reviews/` to git.** Specs and reviews are design history — valuable to future-you and future agents. `.agent/handoff.md` is gitignored — it is transient resume state, not history.
 
 ---
 
