@@ -6,7 +6,7 @@
 
 `/codex:adversarial-review --base <ref>` already injects the full branch diff, commit log, and diff-stat into Codex's prompt context (handled by the plugin's companion script, run in the **main Claude session** — not inside the Codex sandbox). You do **not** need to bundle a diff yourself.
 
-But because Codex's sandbox cannot see `.venv` / `node_modules` / `.git`, Codex cannot independently run acceptance commands or `git diff` from within review. The reviewer can only judge what is **already in its prompt**. That makes spec Section 9 (DoD Evidence) load-bearing:
+See `SKILL.md` "Sandbox constraints" for sandbox limits; see `SKILL.md` Phase 2c for Section 9 split ownership. That makes spec Section 9 (DoD Evidence) load-bearing:
 
 Before triggering review, the **main agent** must ensure (verify is run by a host subagent, recorded by the main agent — the main agent never runs verify itself):
 
@@ -76,14 +76,7 @@ This review is read-only — do not modify code, do not commit, do not switch br
 
 ## Why "evidence-based, not re-run"
 
-Earlier versions of this template instructed Codex to "actually run the commands yourself, do not trust commit messages." That worked when Codex had unrestricted shell access, but the current Codex CLI sandbox:
-
-1. Hides `.venv` and `node_modules` from the filtered working tree (so `pytest`, `ruff`, `npm run build`, `node_modules/.bin/*` all `command not found`)
-2. Blocks writes to `.git/` (so `git commit / add / switch / branch / reset` fail on `index.lock`). Read-only `git diff / log / show` are not blocked.
-
-Asking Codex to run build/test commands inside review produces noise: it tries, fails, falls back to guessing, and the verdict becomes less reliable than if it had simply read the evidence the main agent already gathered.
-
-The fix: a **host subagent** (spawned by the main agent) runs verify in the host working tree (full `.venv` / `node_modules` access) and reports the tails, which the main agent records into spec Section 9. Codex review then evaluates *whether the recorded evidence demonstrates the acceptance criterion*, which is a stronger consistency check than "I ran it and it passed."
+See `SKILL.md` "Sandbox constraints" and `SKILL.md` Phase 2c. Codex review evaluates recorded Section 9 evidence; re-running build/test commands only creates sandbox noise.
 
 ### Large-diff caveat
 
@@ -340,11 +333,11 @@ If Phase 2 didn't produce a commit (Codex failed, was cancelled, etc.), there's 
 
 ### ❌ Triggering review with empty Section 9
 
-Section 9 evidence is the **only** ground truth the reviewer has for acceptance criteria — the sandbox cannot re-run commands. The main agent must ensure it's filled (via the verify subagent) before triggering. Otherwise the verdict is unreliable and you'll just get back `EVIDENCE_MISSING` blockers across the board.
+Section 9 evidence is the reviewer's acceptance ground truth; see `SKILL.md` Phase 2c. Empty evidence yields `EVIDENCE_MISSING` blockers.
 
 ### ❌ Asking Codex to re-run build/test commands inside review
 
-The current Codex sandbox cannot run `pytest`, `npm run build`, `node_modules/.bin/*`, etc. — they resolve to `command not found`. Instructing the reviewer to "run the test yourself" wastes a turn and produces a less reliable verdict than evidence-based review. (Read-only `git diff` is permitted but only useful in self-collect mode for large diffs.)
+See `SKILL.md` "Sandbox constraints"; evidence-based review is more reliable than prompting doomed build/test retries. (Read-only `git diff` is permitted only in self-collect mode for large diffs.)
 
 ### ❌ Asking Codex to fix as part of the review prompt
 

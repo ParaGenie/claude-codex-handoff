@@ -19,7 +19,7 @@ Coordinate Claude Code (planner) + Codex CLI (implementer/reviewer) through the 
 
 **Core principle: the main agent only dispatches and coordinates — it never touches the target codebase or runs verify with its own hands.** Every implementation-file edit goes to Codex (`/codex:rescue`); every verify-command execution goes to a spawned host subagent. This holds even for a one-line fix — there is no "small enough to just do it myself" exception. The main agent's hands stay on: planning, interpretation, judgment, authoring the spec/review artifacts (recording the verifier's output into Section 9 is artifact-authoring, not a code edit), and driving git (branch + commit — Codex's sandbox cannot, and git is the orchestration glue). This keeps the double-model split intact (one model writes, another grades) and matches the Codex sandbox limits below.
 
-**Codex sandbox limits (shape the division of labor above):**
+**Sandbox constraints (shape the division of labor above):**
 
 1. `.git/` is read-only — Codex cannot `switch / branch / add / commit`. The main agent creates `feat/<SLUG>` before `/codex:rescue` and commits after (git stays with the main agent — it is the orchestration glue, not a code edit).
 2. `.venv` / `node_modules` are not mounted into the sandbox — Codex cannot run `pytest`, `npm run build`, `ruff`, etc. A host subagent spawned by the main agent executes the acceptance commands in the host working tree, and the main agent records the output into spec Section 9.
@@ -86,17 +86,25 @@ Use **full three-phase flow** for:
 
 ---
 
+## Cross-Session Resume Anchor
+
+Only when the workflow must cross a session boundary (context compaction, a background job wrapping up, or the user stepping away mid-phase), write `.agent/handoff.md` (gitignored). It contains transient resume state only: current phase, active slug, spec path (reference; do not copy spec content), branch + base branch, Codex task-id if any, pending blockers / failed acceptance / next action, and a `Suggested skills:` line for the next session (for example `codex-handoff` plus any project skill). Redact secrets, keys, and PII. Durable design lives in the committed spec; this file is only a resume pointer. (source: `handoff` skill)
+
+---
+
 ## PHASE 1: Plan
 
 ### What Claude must do
 
 1. **Probe first, don't assume.** Use `view` / `grep` / read relevant `docs/`. Read whichever project-specific design docs are pinned in `CLAUDE.md` under "Key Docs". For DB work read `docs/db-schema.md` if it exists.
 
-2. **Ask clarifying questions when uncertain.** Don't guess. Things worth asking:
-   - Edge cases (concurrency, failure modes, partial states)
-   - Whether existing users / data are affected
-   - Backward compatibility needs
-   - Acceptance criteria ("how do we know it's done right?")
+2. **Grill uncertain plans before writing the spec** (source: `grill-me` skill):
+   - Walk the task's decision tree one branch at a time; resolve prerequisites before dependent choices.
+   - If code/docs can answer the question, read them instead of asking.
+   - Ask **one** question at a time, each with your recommended answer; make it a confirm/reject choice.
+   - Continue until edge cases, user/data impact, backward compatibility, and acceptance criteria are resolved.
+   - Feed those answers into spec §1 (WHY), §4 (Do NOT), and §5 (acceptance).
+   - Scale to risk: skip when already unambiguous; grill hard for money/auth/data/migrations.
 
 3. **Write the spec to `.agent/specs/YYYY-MM-DD-<slug>.md`** using the template in `spec-template.md` (read that file when ready to write a spec).
 

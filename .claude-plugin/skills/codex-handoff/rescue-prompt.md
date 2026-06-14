@@ -4,24 +4,7 @@
 
 ## Sandbox Reality Check (read first)
 
-The Codex CLI sandbox has two hard-coded constraints that shape Phase 2 division of labor:
-
-1. **`.git/` is read-only.** All `git switch / branch / add / commit / restore / stash / reset / checkout` write operations fail with `Operation not permitted` on `.git/index.lock`, even when the project is marked `trust_level = "trusted"`.
-2. **`.venv/` and `node_modules/` are not visible.** The sandbox sees a filtered copy of the working tree that excludes these directories, so `pytest`, `ruff`, `npm run build`, anything that resolves to `.venv/bin/*` or `node_modules/.bin/*` fails with `command not found`.
-
-Both are unconfigurable. Don't waste cycles trying to work around them — design around them:
-
-| Job | Owner |
-|---|---|
-| Create `feat/<SLUG>` branch and check it out | **Main agent** (before `/codex:rescue`) |
-| Modify source files per spec | **Codex sandbox** |
-| List acceptance commands in spec Section 9 | **Codex sandbox** |
-| Run acceptance commands | **Host subagent** (spawned by the main agent after Codex finishes) |
-| Record command output into Section 9 | **Main agent** (artifact-authoring, not a code edit) |
-| `git add` + `git commit` | **Main agent** (git is the orchestration glue) |
-| Browser screenshot for UI tasks (Section 9.2) | **User** (handed off by main agent) |
-
-The handoff template below enforces this split. **The main agent never edits source or runs verify with its own hands** — Codex edits, a host subagent verifies, and the main agent orchestrates (dispatch, record results, drive git).
+See `SKILL.md` "Sandbox constraints" for sandbox limits; see `SKILL.md` Phase 2c for Section 9 split ownership.
 
 ---
 
@@ -155,7 +138,7 @@ If sanity check passes, **the main agent orchestrates verify (via subagent) then
 
 ### Verify (host subagent) + commit (main agent) cycle
 
-The main agent spawns a host subagent and hands it the Section 9 command lines. The subagent runs them in the host working tree and reports the tails; the main agent records each tail into Section 9 and then commits. The main agent itself runs none of the verify commands.
+See `SKILL.md` Phase 2c for Section 9 split ownership.
 
 ```bash
 # Commands the VERIFY SUBAGENT runs in the host working tree

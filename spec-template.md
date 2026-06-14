@@ -89,11 +89,7 @@ Before writing such code, ask: "Is this a real, permanent business constraint, o
 
 ## 9. Definition of Done Evidence (filled at implementation time)
 
-Ownership of Section 9 is split because the Codex sandbox cannot see `.venv` / `node_modules` and cannot write to `.git`:
-
-- **Codex (implementer)** fills the **command lines** — exact shell invocations corresponding to each Section 5 acceptance criterion. Codex does NOT execute them.
-- **A host subagent** (spawned by the main agent) runs those command lines in the host working tree and reports the output tails. The **main agent records** them (~30 lines per command) under each `$ <command>` line — the main agent does not run the commands itself.
-- **Reviewer** evaluates whether the recorded output demonstrably satisfies the corresponding Section 5 criterion. "I ran it" without paste = NEEDS_CHANGES.
+See `SKILL.md` Phase 2c for Section 9 split ownership.
 
 ### 9.1 Static build evidence
 
@@ -255,11 +251,9 @@ Illegal (reviewer should bounce):
 
 ### Section 9 (DoD Evidence)
 
-Filled at the end of Phase 2 (IMPLEMENT). Split ownership (sandbox-imposed):
-
-- **Codex** writes the command lines into 9.1 / 9.2 / 9.3 (one per Section 5 criterion). Codex does NOT execute them — its sandbox cannot resolve `.venv/bin/*` or `node_modules/.bin/*`.
-- **A host subagent** runs the command lines in the host working tree and reports the tails; the **main agent records** them (~30 lines each) under each `$ <command>` line. The main agent never runs verify itself.
-- For UI tasks (9.2), the screenshot + console + network triple cannot be produced by Codex or the subagent — the main agent hands off to the **user** to capture them.
+Filled at the end of Phase 2 (IMPLEMENT). See `SKILL.md` Phase 2c for Section 9 split ownership.
+For docs-only changes, acceptance evidence means build/link-check/grep/trigger self-check where applicable, not forced test runs that do not exist.
+For UI tasks (9.2), the screenshot + console + network triple still requires user capture.
 
 Missing any applicable subsection = reviewer marks NEEDS_CHANGES.
 

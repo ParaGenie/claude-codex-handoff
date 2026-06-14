@@ -56,6 +56,8 @@ This skill encodes that protocol so you don't have to reinvent it every task.
 
 All communication happens **inside one Claude Code session** via `/codex:*` slash commands provided by the [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin.
 
+Phase 1 now includes a compact "grill" loop: Claude walks the decision tree one unresolved branch at a time, asks one confirm/reject question with a recommended answer, and reads code instead of asking when the repo can answer. If a run crosses a session boundary, Claude may write a gitignored `.agent/handoff.md` resume pointer with transient state, suggested skills, and no secrets; the durable design stays in the committed spec.
+
 ### Why Phase 2 is split
 
 The Codex CLI sandbox has two unconfigurable limits: `.git/` is read-only (no `commit` / `branch`), and `.venv` / `node_modules` are not visible inside the sandbox (no `pytest` / `npm run build`). On top of that, this workflow holds one rule above all: **the main Claude agent only dispatches and coordinates — it never edits the target codebase or runs verify with its own hands.** Implementation edits go to Codex; verify execution goes to a spawned host subagent. So Phase 2 splits like this:

@@ -57,6 +57,8 @@ Codex CLI 实现速度快、能稳定后台跑、并且开一个全新会话时�
 
 所有沟通**都在一个 Claude Code 会话内**完成，通过 [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) 插件提供的 `/codex:*` 斜杠命令打通。
 
+阶段 1 现在包含一个紧凑的"拷问"循环：Claude 按依赖顺序逐个解决决策分支，每次只问一个带推荐答案的确认/拒绝问题；代码能回答的就先读代码，不问人。如果流程跨会话，Claude 可以写一个 gitignored 的 `.agent/handoff.md` 恢复指针，只放临时状态、建议启用的 skills，且不放 secrets；持久设计仍以已提交的 spec 为准。
+
 ### 为什么阶段 2 要拆开
 
 Codex CLI 的 sandbox 有两条不可配置的限制：`.git/` 只读（不能 `commit` / `branch`）、`.venv` / `node_modules` 在 sandbox 内不可见（不能 `pytest` / `npm run build`）。在此之上，本工作流还有一条凌驾一切的规范：**Claude 主 agent 只负责调度和协同沟通，绝不亲手改目标代码库、也不亲手跑 verify。** 改实现文件 → 交给 Codex；跑 verify → 交给 spawn 出来的 host subagent。所以阶段 2 这样拆：
