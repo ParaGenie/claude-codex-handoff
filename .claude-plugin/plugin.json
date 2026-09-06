@@ -1,8 +1,8 @@
 {
   "name": "codex-handoff",
   "displayName": "Codex Handoff",
-  "version": "0.1.0",
-  "description": "Three-phase Claude Code <-> Codex CLI collaboration workflow: Claude plans and writes the spec, Codex implements in the background, a fresh Codex session adversarially reviews the diff. For code changes that deserve a written spec.",
+  "version": "0.2.0",
+  "description": "Three-phase Claude Code <-> Codex CLI collaboration workflow: Claude plans and writes the spec, a Claude subagent implements in the host working tree, a fresh Codex session adversarially reviews the diff. Implementation and review are never the same model. For code changes that deserve a written spec.",
   "author": {
     "name": "ParaGenie",
     "url": "https://github.com/ParaGenie"

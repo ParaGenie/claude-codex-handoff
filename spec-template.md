@@ -39,7 +39,7 @@
 
 ## 3. Implementation Notes (HOW, coarse)
 
-<Bullet list, 1-3 sentences each. No code blocks. Codex will fill in the actual code.>
+<Bullet list, 1-3 sentences each. No code blocks. The implementer will fill in the actual code.>
 
 - Point 1: ...
 - Point 2: ...
@@ -47,7 +47,7 @@
 
 ## 4. Do NOT (NEGATIVE SPACE)
 
-<Explicit boundaries to prevent Codex from improvising.>
+<Explicit boundaries to prevent the implementer from improvising.>
 
 - Do not modify X
 - Do not refactor Y in passing
@@ -167,7 +167,7 @@ If either fails, rewrite.
 ### Section 2 (Scope)
 
 - **List actual file paths.** Not "the list components" — `src/components/items/ItemCard.ext`.
-- **"Files NOT to touch" matters.** Codex will improvise without explicit boundaries. Examples worth blocking:
+- **"Files NOT to touch" matters.** The implementer will improvise without explicit boundaries. Examples worth blocking:
   - Shared components or modules with multiple callers (don't change exported signatures)
   - Third-party integration / adapter code that needs human validation against the upstream
   - Production config (`.env.production`, prod-only profile files, prod manifests)
@@ -180,11 +180,11 @@ If either fails, rewrite.
 - Right: "Add `isStale(item, thresholdMs)` to `src/lib/item-status.ext`, compare in UTC"
 - Wrong: 15 lines of code implementing the function
 
-The goal is **enough specificity for Codex not to invent business logic**, but **not so much you're just writing the code yourself**.
+The goal is **enough specificity for the implementer not to invent business logic**, but **not so much you're just writing the code yourself**.
 
 ### Section 4 (Do NOT)
 
-This is where you prevent Codex from "helpfully" refactoring adjacent code. Common bullets worth including:
+This is where you prevent the implementer from "helpfully" refactoring adjacent code. Common bullets worth including:
 
 - "Do not introduce new dependencies"
 - "Do not refactor unrelated code in passing"
@@ -234,7 +234,7 @@ Bad uses:
 
 ### Section 8 (Compatibility Exemption Registry)
 
-Default empty. If Codex sees this section empty and is tempted to write compat code, **stop** and push the question back to the planner.
+Default empty. If the implementer sees this section empty and is tempted to write compat code, **stop** and push the question back to the planner.
 
 Legal entries look like:
 

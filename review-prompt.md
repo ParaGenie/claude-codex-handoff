@@ -1,6 +1,8 @@
 # Review Prompt Template
 
-> Read this file when entering Phase 3 of `codex-handoff` workflow. Use the template below to trigger an adversarial review of Codex's implementation.
+> Read this file when entering Phase 3 of `codex-handoff` workflow. Use the template below to trigger a Codex adversarial review of the implementation produced by the Claude implementer subagent in Phase 2.
+>
+> **The reviewer is always Codex.** This is the cross-model gate: Claude wrote the code, so a Claude subagent reviewing it is the same model grading its own homework. There is no Claude fallback for this phase — if Codex is unavailable, the task waits.
 
 ## Before You Trigger Review (main agent prep, ~1 min)
 
@@ -8,13 +10,15 @@
 
 See `SKILL.md` "Sandbox constraints" for sandbox limits; see `SKILL.md` Phase 2c for Section 9 split ownership. That makes spec Section 9 (DoD Evidence) load-bearing:
 
-Before triggering review, the **main agent** must ensure (verify is run by a host subagent, recorded by the main agent — the main agent never runs verify itself):
+Before triggering review, the **main agent** must ensure (verify is run by a fresh host subagent — not the implementer — and recorded by the main agent; the main agent never runs verify itself):
 
 1. Every acceptance command from spec Section 5 was run in the host working tree (by the verify subagent) and its tail output recorded into spec Section 9.1 / 9.2 / 9.3.
 2. Commit Section 9 alongside the implementation commit (or as a follow-up commit on the same `feat/<SLUG>` branch).
 3. For UI changes, attach the screenshot + console + network triple (Section 9.2). Reviewer cannot infer these — if absent it must mark `NEEDS_CHANGES`.
 
 If Section 9 is empty when you trigger review, the reviewer cannot verify acceptance criteria. That's a workflow bug, not a Codex bug.
+
+Also confirm the branch has a commit (`git log <BASE_BRANCH>..HEAD` non-empty) — the plugin injects the *committed* branch diff.
 
 ---
 
@@ -46,6 +50,7 @@ Required checks (all evidence-based, no command execution):
 6. **Project-specific whitelist (if applicable)**: if the project has a whitelist spec (e.g. allowed UI components, allowed library calls, allowed API patterns) referenced from CLAUDE.md or project spec, grep the in-context diff for usage and cross-check.
 7. **DoD evidence completeness**: spec Section 9.1 / 9.2 / 9.3 must contain real command tails pasted by the main agent (not "I ran it" claims, not empty placeholders). 9.2 requires the screenshot + console + network triple for UI changes. Missing applicable subsection = NEEDS_CHANGES, not PASS.
 8. **Spec compliance traceability**: every finding must cite `(<SPEC_PATH> §N)` or `(diff hunk @path/file.ext:line)`. Findings without traceable citation are not acceptable.
+9. **Contract drift**: compare units, scales, field names, enum values, and precision in the diff against what the spec states (e.g. amounts in minor units vs. major units, seconds vs. milliseconds, snake_case vs. camelCase on the wire). Any silent conversion the spec did not ask for — even one that "makes it work" — is a blocker, not a nice-to-have. The implementer is instructed to report such conflicts rather than bridge them; a bridge in the diff means that rule was broken.
 
 Additional pressure-test angles (apply to the diff text, not by running code):
 - Hidden assumptions visible in the diff: timezones, encoding, null handling, integer overflow, currency precision
@@ -152,7 +157,7 @@ Tailor to the actual task. Common focus area phrasings:
 
 ### Variation: small task, lighter review
 
-For tasks that don't warrant a full adversarial pass (e.g. Claude implemented directly, < 30 lines):
+For tasks that don't warrant a full adversarial pass (the `SKILL.md` fast path: a subagent made a < 30-line edit without a spec):
 
 ```
 /codex:review --base <BASE_BRANCH> --background
@@ -181,81 +186,43 @@ If implementation hasn't been pushed to a branch yet (rare in this workflow, but
 
 ---
 
-## If Review Stalls
+## If Review Stalls (or Codex hits its usage limit)
 
-Unlike Phase 2 (rescue), Phase 3 (review) has a built-in self-heal path because the deliverable is a *judgment report*, not source-file edits — and a general-purpose Claude subagent with full shell + git access can produce that judgment without breaking the double-model implementation split.
+Phase 3 has **no self-heal path to a Claude subagent**. The deliverable is a judgment on code that Claude wrote; a Claude reviewer collapses the cross-model split that is the whole reason Phase 3 exists. Earlier versions of this file had a "fallback subagent" template — it is gone on purpose. Do not reconstruct it.
 
-### Stuck signal (either is sufficient)
+### Stuck signal (any is sufficient)
 
 1. `/codex:status` returns `error / timeout / failed` explicitly.
-2. Two consecutive polls (≈4 min) show no progress: `elapsed` advances, but `state` and `last-message` hash stay identical.
+2. `/codex:status` or `/codex:result` reports a usage / rate limit ("You've hit your usage limit", 429, quota).
+3. Two consecutive polls (≈4 min) show no progress: `elapsed` advances, but `state` and `last-message` hash stay identical.
 
-### Self-heal decision tree
+### Decision tree
 
 ```
 Stuck signal triggered in this review cycle
     │
-    ├─ 1st stall this cycle
+    ├─ 1st stall this cycle, and NOT a usage-limit message
     │     → /codex:cancel
     │     → re-issue /codex:adversarial-review --background with the same args
     │     → treat as transient flake (network blip, sandbox hiccup, CoT loop)
     │     → resume 120s polling
     │
-    └─ 2nd stall this cycle
+    └─ 2nd stall this cycle, OR any usage-limit message
           → /codex:cancel
-          → spawn general-purpose subagent to take over the review (template below)
-          → do NOT retry codex again in this cycle
-          → wait for subagent's report, then drop back into "Interpreting the Report"
+          → STOP. Report to the user in one paragraph:
+              "Codex review unavailable — <state / limit message> after <n> attempts.
+               Branch feat/<SLUG> is committed and §9 is recorded; nothing is lost.
+               Options: (a) retry when the limit resets (<reset time if shown>),
+               (b) /codex:adversarial-review --fresh with the same args,
+               (c) pin a different Codex model via --model for this review."
+          → Wait for the user. Do NOT spawn a Claude subagent to review.
+          → Do NOT recommend merging on the strength of §9 evidence alone —
+            green tests are the implementer's claim, not an independent verdict.
 ```
 
-### Fallback subagent template
+### While waiting
 
-When the 2nd stall fires, invoke:
-
-```
-Agent(
-  subagent_type="general-purpose",
-  description="Fallback adversarial review after codex stalled",
-  prompt=<the template below>
-)
-```
-
-Template body (substitute `<SLUG>`, `<SPEC_PATH>`, `<BASE_BRANCH>`, `<FOCUS_AREAS>`):
-
-```
-You are reviewing branch `feat/<SLUG>` against the spec at <SPEC_PATH>. The
-previous Codex review attempt stalled twice; you are the fallback reviewer.
-
-You have full shell + git access. Use it:
-- Run `git diff <BASE_BRANCH>...HEAD` to read the full branch diff yourself.
-- Re-run spec Section 9.1 / 9.2 / 9.3 acceptance commands in the host working
-  tree. Cross-check the pasted §9 evidence against what you actually observe.
-  If the pasted evidence and your re-run disagree (different command tail,
-  different exit code, different screenshot state), that disagreement IS a
-  blocker — call it out explicitly with both observations side-by-side.
-
-[... paste the body of the Standard Template here, minus the sandbox-rule
-paragraph that starts with "Command-execution rules in the sandbox:" — those
-restrictions are Codex-specific and do not apply to you. Keep the Required
-checks (1-8), Additional pressure-test angles, Output format, and Verdict
-rules verbatim. <FOCUS_AREAS> still applies. ...]
-
-Write the report to .agent/reviews/YYYY-MM-DD-<SLUG>.review.fallback.md (note
-the `.fallback` suffix — it distinguishes a Claude-side fallback review from
-a codex-produced review on disk and in commit history).
-
-This review is read-only — do not modify source code, do not commit, do not
-switch branches. (You may run build/test/lint commands for verification, which
-codex couldn't — that's the whole reason you're the fallback.)
-```
-
-### After the fallback report lands
-
-Read `.agent/reviews/<slug>.review.fallback.md` and drop straight into the "Interpreting the Report" section below — the PASS / NEEDS_CHANGES / FAIL triage rules are identical. When relaying to the user, mention the fallback path in one line: "Codex review stalled twice; fallback review by general-purpose subagent. Verdict still actionable, but the model independence is weaker than a fresh-Codex review (Claude reviewed Claude-orchestrated work)."
-
-### Trade-off note
-
-Fallback review loses the "fresh second model" property that makes the standard Phase 3 valuable. If the change is high-stakes (money/billing/auth/migrations) and both codex attempts stalled, consider asking the user whether to ship on the fallback verdict or wait and retry codex from a clean state — explicitly surface the choice rather than auto-shipping.
+Write `.agent/handoff.md` with phase = REVIEW_PENDING, the branch, the spec path, and the exact `/codex:adversarial-review` command to re-issue, so a later session (or the user) can resume without re-deriving anything. Then the main agent may continue with other, unrelated work.
 
 ---
 
@@ -271,7 +238,7 @@ When the review report arrives (read it from `.agent/reviews/<slug>.review.md`):
 2. Form an independent opinion: is this actually a problem in this context?
 3. Categorize: **valid** / **false positive** / **uncertain — need user input**
 
-Pay special attention to `EVIDENCE_MISSING` items — they often mean "main agent forgot to fill Section 9.x", not "the implementation is broken." If so, fix by filling Section 9 + re-trigger review, not by sending Codex back to fix code.
+Pay special attention to `EVIDENCE_MISSING` items — they often mean "main agent forgot to fill Section 9.x", not "the implementation is broken." If so, fix by filling Section 9 + re-trigger review, not by sending the implementer back to fix code.
 
 ### Step 2: Filter, then present to user
 
@@ -289,8 +256,8 @@ Reviewer flagged N blockers. My assessment:
 
 1. <Blocker 1 summary>
    → My take: valid / false positive / evidence-gap (Section 9.x missing) / need your call
-   → If valid code issue: recommend fix via /codex:rescue --resume OR Claude fixes directly
-   → If evidence gap: main agent fills Section 9.x, re-trigger review (no Codex re-run needed)
+   → If valid code issue: recommend re-dispatching the implementer subagent (SendMessage, same context) — the main agent does not fix it by hand
+   → If evidence gap: main agent fills Section 9.x, re-trigger review (no implementer re-run needed)
    → If false positive: reasoning is <why>
 
 2. <Blocker 2 summary>
@@ -311,7 +278,7 @@ to refine. Want me to start that?
 
 Do not auto-advance. The user decides:
 
-- Accept reviewer's blockers as-is → `/codex:rescue --resume` with fix instructions
+- Accept reviewer's blockers as-is → send fix instructions to the implementer subagent (see `implement-prompt.md` § "continue the same implementer"), re-verify, re-commit, then re-trigger `/codex:adversarial-review` — Codex again, never a Claude reviewer
 - Override certain blockers → note in handoff, proceed with selective fixes
 - Re-plan → return to Phase 1
 
@@ -329,7 +296,7 @@ If you forward every "blocker" to the user as if it's real, you've added a slow,
 
 ### ❌ Running review when nothing was implemented
 
-If Phase 2 didn't produce a commit (Codex failed, was cancelled, etc.), there's nothing to review. Go back to Phase 2, do not run review on an empty branch.
+If Phase 2 didn't produce a commit (implementer failed, was stopped, etc.), there's nothing to review. Go back to Phase 2, do not run review on an empty branch.
 
 ### ❌ Triggering review with empty Section 9
 
@@ -341,4 +308,8 @@ See `SKILL.md` "Sandbox constraints"; evidence-based review is more reliable tha
 
 ### ❌ Asking Codex to fix as part of the review prompt
 
-`/codex:adversarial-review` is read-only by design. Don't try to make it both reviewer and fixer in the same call — you lose the separation that makes this workflow valuable. Fixes happen via `/codex:rescue --resume` in a separate step.
+`/codex:adversarial-review` is read-only by design. Don't try to make it both reviewer and fixer in the same call — you lose the separation that makes this workflow valuable. Fixes go back to the implementer subagent in a separate step; Codex only ever reads.
+
+### ❌ Substituting a Claude reviewer when Codex is slow or rate-limited
+
+"Codex is down, I'll have a general-purpose subagent review it so we can ship today" is the exact failure this workflow is built to prevent. The implementer was Claude; the review must not be. Wait, retry, or pin another Codex model — never fall back within the same model family.

@@ -6,21 +6,21 @@
 ![Codex CLI](https://img.shields.io/badge/Codex%20CLI-required-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **Let Claude Code plan, OpenAI Codex CLI implement, and a fresh Codex session adversarially review.**
-> A battle-tested three-phase workflow for code changes that deserve a written spec — not the same model writing and grading its own homework.
+> **Let Claude Code plan, a Claude subagent implement, and a fresh OpenAI Codex session adversarially review.**
+> A battle-tested three-phase workflow for code changes that deserve a written spec — the model that writes the code is never the model that grades it.
 
 ---
 
 ## Why this exists
 
-Claude Code is excellent at exploring code, asking the right clarifying questions, and making judgment calls.
-Codex CLI is fast at mechanical implementation, runs well in the background, and is a credible **second opinion** when it comes back fresh.
+Claude Code is excellent at exploring code, asking the right clarifying questions, making judgment calls — and, through a subagent with full host access, implementing against a spec without leaving the session.
+Codex CLI reading the finished diff cold is a credible **second opinion from a different model**, which is the one thing Claude cannot give itself.
 
 Combine them poorly and you get hand-waving and double work. Combine them well and you get:
 
 - A **written spec** before any code is touched
-- An **independent implementer** that can't take shortcuts the planner already rationalized
-- An **adversarial reviewer** with no memory of why the code was written this way
+- An **implementer subagent** bound to that spec, with no license to improvise
+- An **adversarial reviewer from a different model** with no memory of why the code was written this way
 
 This skill encodes that protocol so you don't have to reinvent it every task.
 
@@ -35,11 +35,12 @@ This skill encodes that protocol so you don't have to reinvent it every task.
                            │ you reply "approved"
                            ▼
 ┌────────────────────────────────────────────────────────────┐
-│  PHASE 2 — IMPLEMENT (Codex edits, subagent verifies)      │
-│  Claude:    git switch -c feat/<slug>                      │
-│  Codex:     edit files + list cmds in spec §9 (no git/shell)│
-│  Subagent:  run §9 cmds on host → report tails             │
-│  Claude:    record tails → git commit                      │
+│  PHASE 2 — IMPLEMENT (Claude subagent edits, another       │
+│                       subagent verifies)                   │
+│  Claude:      git switch -c feat/<slug>                    │
+│  Implementer: edit files + list cmds in spec §9 (no commit)│
+│  Verifier:    run §9 cmds on host → report tails           │
+│  Claude:      record tails → git commit                    │
 └──────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -47,6 +48,7 @@ This skill encodes that protocol so you don't have to reinvent it every task.
 │  PHASE 3 — REVIEW   (fresh Codex via /codex:adversarial-…) │
 │  Plugin auto-injects diff → Codex evaluates against        │
 │  spec + §9 evidence → report blockers                      │
+│  Reviewer is ALWAYS Codex — never a Claude subagent        │
 └──────────────────────────┬─────────────────────────────────┘
                            │
                            ▼
@@ -54,19 +56,25 @@ This skill encodes that protocol so you don't have to reinvent it every task.
         recommends fix-or-ship, hands the decision back to you.
 ```
 
-All communication happens **inside one Claude Code session** via `/codex:*` slash commands provided by the [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin.
+Everything happens **inside one Claude Code session**: implementation via the built-in `Agent` tool, review via `/codex:*` slash commands provided by the [codex-plugin-cc](https://github.com/openai/codex-plugin-cc) plugin.
 
 Phase 1 now includes a compact "grill" loop: Claude walks the decision tree one unresolved branch at a time, asks one confirm/reject question with a recommended answer, and reads code instead of asking when the repo can answer. If a run crosses a session boundary, Claude may write a gitignored `.agent/handoff.md` resume pointer with transient state, suggested skills, and no secrets; the durable design stays in the committed spec.
 
 ### Why Phase 2 is split
 
-The Codex CLI sandbox has two unconfigurable limits: `.git/` is read-only (no `commit` / `branch`), and `.venv` / `node_modules` are not visible inside the sandbox (no `pytest` / `npm run build`). On top of that, this workflow holds one rule above all: **the main Claude agent only dispatches and coordinates — it never edits the target codebase or runs verify with its own hands.** Implementation edits go to Codex; verify execution goes to a spawned host subagent. So Phase 2 splits like this:
+This workflow holds one rule above all: **the main Claude agent only dispatches and coordinates — it never edits the target codebase or runs verify with its own hands.** So Phase 2 splits like this:
 
-- **Codex** does what its sandbox allows: edit source files and write the *exact command lines* the verifier should run, into spec Section 9.
-- **A host subagent** (spawned by the main agent) runs those commands against the host working tree (where `.venv` / `node_modules` actually live) and reports the output tails.
-- **The Claude main agent** never touches source or runs verify itself; it dispatches, records the subagent's tails into Section 9, drives git (branch + commit — the one thing it does directly, since the sandbox can't and git is the orchestration glue), and judges.
+- **An implementer subagent** (spawned by the main agent, running in the host working tree with full shell + git visibility) edits source files under the spec's constraints and writes the *exact command lines* the verifier should run into spec Section 9. It does not commit and does not fill Section 9 output.
+- **A separate verifier subagent** runs those commands in the host working tree and reports the output tails. Keeping it separate from the implementer means the evidence the reviewer reads was not produced by the hands that wrote the code.
+- **The Claude main agent** never touches source or runs verify itself; it dispatches, records the verifier's tails into Section 9, drives git (branch + commit — git is the orchestration glue), and judges.
 
-Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and Section 9 evidence (paste with real command tails). The reviewer evaluates against both without trying to re-run anything — which it couldn't, anyway.
+Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and Section 9 evidence (real command tails). Codex evaluates against both without trying to re-run anything — its sandbox can't see `.venv` / `node_modules` anyway.
+
+### Why the implementer is Claude and the reviewer is Codex
+
+Earlier versions delegated implementation to Codex via `/codex:rescue`. In practice that cost more than it returned: the Codex sandbox can't run git or the project's build tools, it hits usage quotas mid-task, it sometimes can't write outside the repo, and every dispatch needed a hand-written prompt plus polling. A Claude subagent on the host has none of those problems and is about as fast — the bottleneck is host verification either way.
+
+What that change gives up is one layer of independent perspective *during* implementation. That is why the review side is now a hard rule: **implementation and review must never be the same model.** Codex reviews, always. If Codex stalls or hits its usage limit, the task waits — the skill explicitly forbids substituting a Claude subagent as reviewer, because two Claude agents are "different agents" on paper and the same model in practice.
 
 ## When to use it
 
@@ -83,7 +91,7 @@ Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and
 - Exploration questions ("show me how X works")
 - Discussion-only turns
 
-🟡 **For in-between tasks** (< 30 lines, single file, no business logic): the main agent still doesn't edit files itself — it spawns a subagent to make the edit and a host subagent to verify, then runs `/codex:review` as a lighter sanity check before committing. The heavy `/codex:rescue` spec handoff (Phase 1 & 2) is skipped, but the orchestrator boundary holds.
+🟡 **For in-between tasks** (< 30 lines, single file, no business logic): the main agent still doesn't edit files itself — it spawns a subagent to make the edit and a separate host subagent to verify, then runs `/codex:review` as a lighter cross-model sanity check before committing. The written spec (Phase 1) is skipped, but the orchestrator boundary and the cross-model rule both hold.
 
 ## Files in this repo
 
@@ -91,7 +99,7 @@ Phase 3 then has a complete artifact: the diff (auto-injected by the plugin) and
 |---|---|---|
 | `SKILL.md` | Workflow definition, decision rules, command catalog | Auto-loaded when the skill triggers |
 | `spec-template.md` | Spec format and filling guide | Phase 1 — Claude writes a spec |
-| `rescue-prompt.md` | Standard prompts for `/codex:rescue` | Phase 2 — Claude delegates to Codex |
+| `implement-prompt.md` | Standard prompt for the implementer subagent | Phase 2 — Claude spawns the implementer |
 | `review-prompt.md` | Standard prompts for `/codex:adversarial-review` | Phase 3 — Claude requests review |
 | `CLAUDE.md.template` | Minimal per-project `CLAUDE.md` template | Copied into each project root |
 
@@ -211,20 +219,20 @@ You: Add a "stale" indicator to the items list — highlight items whose
 
 Claude: [loads skill, probes code, asks 1-2 clarifying questions,
          writes .agent/specs/2026-05-21-stale-items-indicator.md]
-        Spec written. Please review and reply "approved" to hand off to Codex.
+        Spec written. Please review and reply "approved" to start implementation.
 
 You: approved
 
 Claude: [git switch -c feat/stale-items-indicator main]
-        [issues /codex:rescue --background]
-        Codex is implementing in the background. I'll check back when it's done.
+        [spawns implementer subagent with implement-prompt.md]
+        Implementer is working in the background. I'll check back when it's done.
 
-[...Codex edits files, writes acceptance command lines into spec §9...]
+[...subagent edits files, writes acceptance command lines into spec §9...]
 
-Claude: Codex finished. Running acceptance commands from §9 now.
-        [runs `npm run typecheck`, `npm test`, dev-server + manual click-through]
-        All green. Pasted output into §9.1 / §9.2 / §9.3.
-        Committed as abc123. Starting review.
+Claude: Implementer finished. Spawning a verifier for the §9 commands.
+        [verifier runs `npm run typecheck`, `npm test`, dev-server + manual click-through]
+        All green. Recorded tails into §9.1 / §9.2 / §9.3.
+        Committed as abc123. Starting Codex review.
         [issues /codex:adversarial-review --background]
 
 [...reviewer works...]
@@ -238,7 +246,7 @@ Claude: Review verdict: NEEDS_CHANGES. Reviewer flagged 2 blockers:
   2. Banner re-renders on every parent update.
      → My take: false positive — re-renders here are cheap and intentional.
 
-  Recommended: /codex:rescue --resume to fix #1, skip #2. OK to proceed?
+  Recommended: send #1 back to the implementer, skip #2, then re-review with Codex. OK to proceed?
 ```
 
 ## FAQ
@@ -246,14 +254,14 @@ Claude: Review verdict: NEEDS_CHANGES. Reviewer flagged 2 blockers:
 **Q: Why not just use Claude Code alone?**
 You absolutely can. But once the change is non-trivial, having the same model both write and grade its own work is a known weak spot. A fresh second model reading the diff cold catches things the author rationalized.
 
-**Q: Why not just use Codex CLI alone?**
-Codex is fast and capable, but it benefits from a written spec and a separate review pass. This skill is the protocol that wraps both.
+**Q: Why not let Codex implement too?**
+It used to (v0.1). The sandbox limits (no git, no `.venv` / `node_modules`), usage quotas, and prompt/polling overhead outweighed the benefit, and speed was a wash. Codex now does the one job Claude structurally cannot: review Claude's code as a different model.
 
 **Q: Does it cost extra?**
 Yes — you're running Codex (via your ChatGPT subscription or OpenAI API key) on top of Claude. The cost scales with the size of the change.
 
 **Q: Can I use a different reviewer model?**
-The skill ships with Codex as both implementer and reviewer because they're decoupled by **session**, not by model — a fresh Codex with no memory of the implementation is genuinely adversarial. Swap if you have a strong preference; the skill structure stays the same.
+Yes, as long as it is **not the implementer's model**. The skill ships with Codex because the codex-plugin-cc plugin makes the diff injection and background job handling turnkey. What you must not do is fall back to a Claude subagent for review when Codex is busy — that is the exact same-model blind spot the workflow exists to avoid.
 
 **Q: What if Codex's review is wrong?**
 That's Claude's job in Phase 3 — to triage the report, separate real blockers from false positives, and recommend next steps. You stay the final decision-maker.
@@ -293,7 +301,7 @@ Per-project `CLAUDE.md` and `.agent/` directories stay local and are unaffected.
 Issues and PRs welcome — especially:
 
 - Tweaks to the spec template based on real-world specs that turned out to need a missing field
-- New `/codex:*` prompt patterns that consistently produce better implementations or reviews
+- Implementer-prompt or `/codex:*` review-prompt patterns that consistently produce better results
 - Stories of where the workflow worked / didn't (instructive for refining decision rules in `SKILL.md`)
 
 ## License

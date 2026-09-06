@@ -57,9 +57,11 @@ These need the project owner's personal sign-off, not agent autonomy:
 
 ## Collaboration Workflow
 
-This project uses the **`codex-handoff` skill** — Claude plans, Codex implements and reviews.
+This project uses the **`codex-handoff` skill** — Claude plans, a Claude subagent implements, Codex reviews.
 
-**Orchestrator rule:** the main Claude agent only dispatches and coordinates. It never edits the target codebase or runs verify with its own hands — implementation edits go to Codex (`/codex:rescue`) or a spawned subagent, verify execution goes to a spawned host subagent. The main agent keeps planning, judgment, recording results into the spec, and driving git (branch + commit).
+**Orchestrator rule:** the main Claude agent only dispatches and coordinates. It never edits the target codebase or runs verify with its own hands — implementation edits go to a spawned implementer subagent, verify execution goes to a separate spawned host subagent. The main agent keeps planning, judgment, recording results into the spec, and driving git (branch + commit).
+
+**Cross-model rule:** implementation and review must not be the same model. Implementation is Claude (main agent + subagent); review is Codex (`/codex:adversarial-review`, or `/codex:review` on the fast path). Two Claude subagents do not satisfy this rule. If Codex is unavailable (stall, usage limit), the review waits — a Claude subagent never substitutes.
 
 When starting any non-trivial coding task, load the `codex-handoff` skill and follow its three-phase flow (PLAN → IMPLEMENT → REVIEW).
 

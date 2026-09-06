@@ -14,9 +14,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DEST=".claude-plugin/skills/codex-handoff"
-FILES=(SKILL.md spec-template.md rescue-prompt.md review-prompt.md CLAUDE.md.template)
+FILES=(SKILL.md spec-template.md implement-prompt.md review-prompt.md CLAUDE.md.template)
 
 mkdir -p "$DEST"
+rm -f "$DEST/rescue-prompt.md"   # retired in 0.2.0 (implementer is a Claude subagent now)
 
 changed=0
 for f in "${FILES[@]}"; do

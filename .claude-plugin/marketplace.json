@@ -9,8 +9,8 @@
     {
       "name": "codex-handoff",
       "source": "./.claude-plugin",
-      "description": "Three-phase Claude Code <-> Codex CLI workflow: planner, implementer, adversarial reviewer.",
-      "version": "0.1.0",
+      "description": "Three-phase Claude Code <-> Codex CLI workflow: Claude plans, a Claude subagent implements, Codex adversarially reviews.",
+      "version": "0.2.0",
       "homepage": "https://github.com/ParaGenie/claude-codex-handoff",
       "license": "MIT"
     }
