@@ -1,315 +1,136 @@
 # Review Prompt Template
 
-> Read this file when entering Phase 3 of `codex-handoff` workflow. Use the template below to trigger a Codex adversarial review of the implementation produced by the Claude implementer subagent in Phase 2.
->
-> **The reviewer is always Codex.** This is the cross-model gate: Claude wrote the code, so a Claude subagent reviewing it is the same model grading its own homework. There is no Claude fallback for this phase — if Codex is unavailable, the task waits.
+> Load in Phase 3 of `codex-handoff`. The reviewer is always Codex — Claude wrote the code, so a Claude reviewer would be the same model grading its own homework. If Codex is unavailable, the task waits (stall rules in `SKILL.md` Phase 3).
 
-## Before You Trigger Review (main agent prep, ~1 min)
+## Before triggering (main agent)
 
-`/codex:adversarial-review --base <ref>` already injects the full branch diff, commit log, and diff-stat into Codex's prompt context (handled by the plugin's companion script, run in the **main Claude session** — not inside the Codex sandbox). You do **not** need to bundle a diff yourself.
+- [ ] Every §5 acceptance command was run by the verify subagent and its tail is recorded in §9.1 / 9.2 / 9.3
+- [ ] UI changes: §9.2 screenshot + console + network triple attached
+- [ ] §9 is committed on `feat/<SLUG>` (`git log <BASE_BRANCH>..HEAD` non-empty — the plugin injects the *committed* branch diff)
+- [ ] 3–5 task-specific focus bullets prepared (below)
 
-See `SKILL.md` "Sandbox constraints" for sandbox limits; see `SKILL.md` Phase 2c for Section 9 split ownership. That makes spec Section 9 (DoD Evidence) load-bearing:
+The plugin injects the branch diff, commit log, and diff-stat into Codex's `<repository_context>`; you bundle nothing. Empty §9 = a workflow bug, not a Codex bug.
 
-Before triggering review, the **main agent** must ensure (verify is run by a fresh host subagent — not the implementer — and recorded by the main agent; the main agent never runs verify itself):
+## Standard template
 
-1. Every acceptance command from spec Section 5 was run in the host working tree (by the verify subagent) and its tail output recorded into spec Section 9.1 / 9.2 / 9.3.
-2. Commit Section 9 alongside the implementation commit (or as a follow-up commit on the same `feat/<SLUG>` branch).
-3. For UI changes, attach the screenshot + console + network triple (Section 9.2). Reviewer cannot infer these — if absent it must mark `NEEDS_CHANGES`.
-
-If Section 9 is empty when you trigger review, the reviewer cannot verify acceptance criteria. That's a workflow bug, not a Codex bug.
-
-Also confirm the branch has a commit (`git log <BASE_BRANCH>..HEAD` non-empty) — the plugin injects the *committed* branch diff.
-
----
-
-## Standard Template
-
-Substitute `<SLUG>`, `<SPEC_PATH>`, `<BASE_BRANCH>`, and `<FOCUS_AREAS>` then issue:
+Substitute `<SLUG>`, `<SPEC_PATH>`, `<BASE_BRANCH>`, `<FOCUS_AREAS>`, then issue:
 
 ```
 /codex:adversarial-review --base <BASE_BRANCH> --background
 
 You are reviewing branch `feat/<SLUG>` against the spec at <SPEC_PATH>.
 
-The branch diff, commit log, and diff-stat are already in your `<repository_context>` (injected by the plugin from the main agent's git working tree). Use them as primary evidence.
+The branch diff, commit log, and diff-stat are already in your `<repository_context>`. Use them as primary evidence.
 
-Command-execution rules in the sandbox:
-- Do NOT run git **write** commands: `commit`, `add`, `switch`, `branch`, `restore`, `stash`, `reset`, `checkout`. The sandbox blocks writes to `.git/`.
-- Do NOT run build / test / lint commands (`pytest`, `npm run build`, `ruff`, etc.). The sandbox does not mount `.venv` / `node_modules`, so these resolve to `command not found`.
-- Read-only `git diff / log / show` MAY be used **only when** your `<repository_context>` was delivered in "self-collect" mode (the plugin's collection guidance will explicitly tell you to inspect the diff yourself — this happens for large diffs that exceed the inline budget). For "inline-diff" mode (the default), the diff is already in your context and there is nothing for git to add.
+Sandbox rules:
+- Do NOT run git write commands (commit, add, switch, branch, restore, stash, reset, checkout) — `.git/` is read-only here.
+- Do NOT run build / test / lint commands (pytest, npm run build, ruff, ...) — `.venv` / `node_modules` are not mounted and they resolve to "command not found".
+- Read-only `git diff / log / show` only when your `<repository_context>` says "self-collect" mode (large diffs). In the default inline-diff mode the diff is already in context.
 
 Your job is to challenge this implementation, not approve it by default.
 
-Required checks (all evidence-based, no command execution):
+Required checks (evidence-based, no command execution):
 
-1. **Acceptance criteria coverage**: open <SPEC_PATH> Section 5 (acceptance criteria) and Section 9 (DoD Evidence already pasted by the main agent). For each Section 5 item, mark PASS / FAIL / EVIDENCE_MISSING based solely on what is pasted in Section 9. EVIDENCE_MISSING is a blocker — do not pass it.
-2. **Do-NOT violations**: identify any spec Section 4 item that the diff violates.
-3. **Scope creep**: the changed-file list is in your `<repository_context>`. Cross-reference with spec Section 2 "Files to modify" / "Files to create". Anything outside the registered set (and not logged under Section 6 follow-ups) is out-of-scope.
+1. **Acceptance criteria coverage**: for each <SPEC_PATH> Section 5 item, mark PASS / FAIL / EVIDENCE_MISSING based solely on what is recorded in Section 9. EVIDENCE_MISSING is a blocker.
+2. **Do-NOT violations**: any Section 4 item the diff violates.
+3. **Scope creep**: cross-reference the changed-file list with Section 2. Anything outside it (and not logged under Section 6 follow-ups) is out of scope.
 4. **Focus areas for this change**: <FOCUS_AREAS>
-5. **Compatibility-code drift**: grep your in-context diff for `legacy` / `fallback` / `deprecated` / `oldFormat` / `兼容` / `旧版` and semantic patterns like `if (version < ...)` or `try { ... } catch (Old...)`. Cross-reference with spec Section 8 — any pattern present that isn't registered = violation.
-6. **Project-specific whitelist (if applicable)**: if the project has a whitelist spec (e.g. allowed UI components, allowed library calls, allowed API patterns) referenced from CLAUDE.md or project spec, grep the in-context diff for usage and cross-check.
-7. **DoD evidence completeness**: spec Section 9.1 / 9.2 / 9.3 must contain real command tails pasted by the main agent (not "I ran it" claims, not empty placeholders). 9.2 requires the screenshot + console + network triple for UI changes. Missing applicable subsection = NEEDS_CHANGES, not PASS.
-8. **Spec compliance traceability**: every finding must cite `(<SPEC_PATH> §N)` or `(diff hunk @path/file.ext:line)`. Findings without traceable citation are not acceptable.
-9. **Contract drift**: compare units, scales, field names, enum values, and precision in the diff against what the spec states (e.g. amounts in minor units vs. major units, seconds vs. milliseconds, snake_case vs. camelCase on the wire). Any silent conversion the spec did not ask for — even one that "makes it work" — is a blocker, not a nice-to-have. The implementer is instructed to report such conflicts rather than bridge them; a bridge in the diff means that rule was broken.
+5. **Compatibility-code drift**: grep the diff for `legacy` / `fallback` / `deprecated` / `oldFormat` / `兼容` / `旧版` and patterns like `if (version < ...)` or `catch (Old...)`. Any hit not registered in Section 8 is a violation.
+6. **Project whitelist (if any)**: if CLAUDE.md or a project spec restricts allowed components / libraries / API patterns, check the diff against it.
+7. **DoD evidence completeness**: Section 9.1 / 9.2 / 9.3 must contain real command tails, not "I ran it" claims or empty placeholders. 9.2 needs the screenshot + console + network triple for UI changes. Missing applicable subsection = NEEDS_CHANGES.
+8. **Traceability**: every finding cites `(<SPEC_PATH> §N)` or `(diff hunk @path/file.ext:line)`.
+9. **Contract drift**: compare units, scales, field names, enum values, and precision in the diff against the spec (minor vs. major currency units, seconds vs. milliseconds, snake_case vs. camelCase on the wire). Any silent conversion the spec did not ask for is a blocker — the implementer was told to report conflicts, so a bridge in the diff means that rule was broken.
 
-Additional pressure-test angles (apply to the diff text, not by running code):
-- Hidden assumptions visible in the diff: timezones, encoding, null handling, integer overflow, currency precision
-- Concurrency / race conditions if the code path is reachable from concurrent entry points
-- Failure modes apparent from the diff: what happens when external dependencies fail mid-operation?
-- Rollback feasibility: does spec Section 6 actually describe a working rollback, or hand-wave it?
-- Security: any user input reaching SQL / shell / eval / file system without validation, visible in the diff?
+Pressure-test angles (on the diff text): hidden assumptions (timezones, encoding, null handling, overflow, currency precision); races if the path is reachable concurrently; behaviour when an external dependency fails mid-operation; whether Section 6 rollback actually works; user input reaching SQL / shell / eval / filesystem unvalidated.
 
 Output format:
-- First line: "VERDICT: PASS" or "VERDICT: NEEDS_CHANGES" or "VERDICT: FAIL"
-- Section "Acceptance criteria check" — table of spec Section 5 items with PASS / FAIL / EVIDENCE_MISSING and one-line evidence reference (pointing into Section 9 paste or diff)
-- Section "Blockers" — issues that must be fixed before merge. Each blocker: what, where (file:line from the diff), why it matters, suggested fix
-- Section "Nice-to-haves" — non-blocking suggestions. Keep brief.
-- Section "Out-of-scope changes" — anything in the changed-file list outside spec Section 2
-- Section "Notes" — anything else worth knowing
+- First line: "VERDICT: PASS" | "VERDICT: NEEDS_CHANGES" | "VERDICT: FAIL"
+- "Acceptance criteria check" — table of Section 5 items with PASS / FAIL / EVIDENCE_MISSING and a one-line evidence reference
+- "Blockers" — must fix before merge: what, where (file:line), why it matters, suggested fix
+- "Nice-to-haves" — brief, non-blocking
+- "Out-of-scope changes" — files outside Section 2
+- "Notes"
 
 Verdict rules:
-- PASS = every Section 5 item has matching Section 9 evidence that demonstrably satisfies it, no Do-NOT violations, no out-of-scope changes (or only trivial ones), no security/correctness issues visible in the diff
-- NEEDS_CHANGES = correctable issues exist (including EVIDENCE_MISSING) but the overall approach is sound
-- FAIL = the implementation is structurally wrong, the spec is unimplementable as written, or the change creates unacceptable risk
+- PASS = every Section 5 item has Section 9 evidence that demonstrably satisfies it, no Do-NOT violations, no non-trivial out-of-scope changes, no security/correctness issues visible in the diff
+- NEEDS_CHANGES = correctable issues (including EVIDENCE_MISSING) but the approach is sound
+- FAIL = structurally wrong, spec unimplementable as written, or unacceptable risk
 
 Write the report to .agent/reviews/YYYY-MM-DD-<SLUG>.review.md.
 
-This review is read-only — do not modify code, do not commit, do not switch branches, do not invoke build/test commands.
+This review is read-only — do not modify code, commit, switch branches, or run build/test commands.
 ```
 
----
+Large diffs: the plugin truncates the inline diff at its `maxInlineFiles` / `maxInlineDiffBytes` budget and switches to self-collect mode, where Codex reads the diff with read-only `git diff`. Inline mode produces a more grounded review — split very large changes into smaller commits when you can.
 
-## Why "evidence-based, not re-run"
+### Variations
 
-See `SKILL.md` "Sandbox constraints" and `SKILL.md` Phase 2c. Codex review evaluates recorded Section 9 evidence; re-running build/test commands only creates sandbox noise.
-
-### Large-diff caveat
-
-The plugin truncates inline diff at ~`maxInlineFiles` / `maxInlineDiffBytes`. When the change is bigger than that, the plugin switches to "self-collect" mode — `<repository_context>` contains only the changed-file list, and the plugin's own collection guidance tells the reviewer to inspect the diff with read-only `git diff` itself (which the sandbox permits). The review prompt above honors that: git **reads** are allowed; git **writes** and build/test commands remain off-limits.
-
-If you're shipping a very large change and worried about reviewer reliability, prefer splitting it into smaller logical commits — the inline-diff path produces a more grounded review than self-collect.
-
----
+- **Fast path**: `/codex:review --base <BASE_BRANCH> --background` — not steerable, no focus text. §9 should still be filled.
+- **Uncommitted changes** (rare, hotfixes): drop `--base`; the plugin inlines staged + unstaged + untracked diff. Say "current uncommitted changes" instead of the branch in the prompt.
 
 ## Filling `<FOCUS_AREAS>`
 
-Tailor to the actual task. Common focus area phrasings:
+Always 3–5 bullets specific to the change. Without them adversarial review turns generic and noisy. Starting points:
 
-### Money / billing / commission
+**Money / billing / commission**
+- Amounts as integers in minor units, never floats; rounding happens once, consistently across calculation and storage
+- Concurrent updates: can two purchases double-spend the same balance?
+- Refund path mirrors the charge path (same currency, same precision)
 
-```
-- Currency precision: are amounts handled as integers (cents/minor units) or floats? Floats are a bug.
-- Rounding: where does rounding happen, and is it consistent across calculation and storage?
-- Concurrent order updates: can two simultaneous purchases double-spend the same balance?
-- Refund symmetry: does the refund path mirror the charge path (same currency, same precision)?
-```
+**Database migrations**
+- Old application code can still read/write the new schema during deploy
+- FK / unique constraints that could fail mid-migration on production-sized data
+- The spec's rollback plan is not data-destructive; new indexes do not require extended downtime
 
-### Database migrations
+**External API / third-party integration**
+- Every outbound call expects timeout, malformed response, and rate limit
+- Retries are idempotent — no duplicate resource or duplicate charge
+- Webhook signature verification present and correct; credentials only from config, never hardcoded or logged
 
-```
-- Backward compatibility: can old application code still read/write the new schema during deploy?
-- Data integrity: any FK / unique constraint that could fail mid-migration on production-sized data?
-- Rollback feasibility: does the spec's rollback plan actually work, or is it data-destructive?
-- Performance: any new index that requires extended downtime on large tables?
-```
+**Frontend / UI**
+- No unguarded browser globals in SSR paths; no hardcoded user-facing strings outside i18n
+- Labels on form fields, keyboard handlers on interactive elements
+- Built from the project's existing component primitives; §9.2 triple present
 
-### External API / third-party integration
+**Auth / secrets**
+- Secret material never logged, returned, or embedded in error messages; never plain text on disk
+- Every endpoint enforces auth before doing work; change tolerates key rotation in flight
 
-```
-- Error handling: every outbound call should expect timeout, malformed response, and rate limit
-- Retry behavior: is retry idempotent? Could a retry create a duplicate resource or duplicate charge?
-- Webhook / callback signature verification: present and correct?
-- Polling intervals: any change that could DoS or rate-limit the upstream service?
-- Credentials: are API keys, tokens, or secrets only read from config — never hardcoded, never logged?
-```
+**General correctness**
+- Empty / single / max-size / malformed input; off-by-one in loops and ranges; null handling
+- Failure leaves the system in a consistent state
 
-### Frontend / UI
+## Interpreting the report
 
-```
-- SSR / CSR consistency: does any code assume browser globals (`window`, `document`) exist without guards?
-- i18n: any hardcoded user-facing strings outside i18n files?
-- Accessibility: form fields have labels, interactive elements have keyboard handlers?
-- Component reuse: are new UI elements built with the project's existing component primitives rather than raw markup?
-- Section 9.2 triple present? Page screenshot + console clean + network 2xx — all three required for UI tasks.
-```
+Read `.agent/reviews/<date>-<slug>.review.md`. Reviewers feel pressure to "find something" — many blockers are false positives. For each one, form an independent opinion and categorize: **valid** / **false positive** / **evidence gap** / **need user input**. `EVIDENCE_MISSING` usually means "§9.x was not filled", not "the code is broken" — fix by filling §9 and re-triggering, not by sending the implementer back.
 
-### Auth / secret handling
-
-```
-- Secret material: does any code log, return in responses, or include in error messages?
-- Storage: are secrets encrypted at rest, or only in memory / KMS — never plain text on disk?
-- Permission checks: every endpoint enforces auth before doing work?
-- Token / key rotation: is the change compatible with rotation in flight (no implicit lifetime assumptions)?
-```
-
-### General correctness (when nothing more specific applies)
-
-```
-- Edge cases: empty input, single-element input, max-size input, malformed input
-- Off-by-one errors in any loop or range
-- Null / undefined handling
-- Error path: does failure leave the system in a consistent state?
-```
-
----
-
-## Variations
-
-### Variation: small task, lighter review
-
-For tasks that don't warrant a full adversarial pass (the `SKILL.md` fast path: a subagent made a < 30-line edit without a spec):
-
-```
-/codex:review --base <BASE_BRANCH> --background
-```
-
-Note: `/codex:review` is not steerable and does not take focus text. Use only for low-risk sanity checks. Same sandbox limits apply — main agent should still have filled Section 9 before triggering.
-
-### Variation: review without a base branch (uncommitted changes)
-
-If implementation hasn't been pushed to a branch yet (rare in this workflow, but happens for hotfixes), the plugin's working-tree mode inlines staged + unstaged + untracked diff into the prompt:
-
-```
-/codex:adversarial-review --background
-
-[... rest of standard template, but mention "current uncommitted changes" instead of branch ...]
-```
-
----
-
-## What Claude Should Do While Review Runs
-
-- **Poll `/codex:status` every 120 seconds proactively** — do not wait for the user to ask. After each poll, surface a one-liner to the user: `[poll T+Nmin] codex <task-id> state=<running|completed|error> last=<short summary>`.
-- Track `state` + `last-message` hash across polls — needed for stall detection (next section).
-- Do NOT read the in-progress review report; it pollutes your own triage in Step 1 of "Interpreting the Report".
-- Continue conversation with the user on other topics — the poll cadence runs alongside.
-
----
-
-## If Review Stalls (or Codex hits its usage limit)
-
-Phase 3 has **no self-heal path to a Claude subagent**. The deliverable is a judgment on code that Claude wrote; a Claude reviewer collapses the cross-model split that is the whole reason Phase 3 exists. Earlier versions of this file had a "fallback subagent" template — it is gone on purpose. Do not reconstruct it.
-
-### Stuck signal (any is sufficient)
-
-1. `/codex:status` returns `error / timeout / failed` explicitly.
-2. `/codex:status` or `/codex:result` reports a usage / rate limit ("You've hit your usage limit", 429, quota).
-3. Two consecutive polls (≈4 min) show no progress: `elapsed` advances, but `state` and `last-message` hash stay identical.
-
-### Decision tree
-
-```
-Stuck signal triggered in this review cycle
-    │
-    ├─ 1st stall this cycle, and NOT a usage-limit message
-    │     → /codex:cancel
-    │     → re-issue /codex:adversarial-review --background with the same args
-    │     → treat as transient flake (network blip, sandbox hiccup, CoT loop)
-    │     → resume 120s polling
-    │
-    └─ 2nd stall this cycle, OR any usage-limit message
-          → /codex:cancel
-          → STOP. Report to the user in one paragraph:
-              "Codex review unavailable — <state / limit message> after <n> attempts.
-               Branch feat/<SLUG> is committed and §9 is recorded; nothing is lost.
-               Options: (a) retry when the limit resets (<reset time if shown>),
-               (b) /codex:adversarial-review --fresh with the same args,
-               (c) pin a different Codex model via --model for this review."
-          → Wait for the user. Do NOT spawn a Claude subagent to review.
-          → Do NOT recommend merging on the strength of §9 evidence alone —
-            green tests are the implementer's claim, not an independent verdict.
-```
-
-### While waiting
-
-Write `.agent/handoff.md` with phase = REVIEW_PENDING, the branch, the spec path, and the exact `/codex:adversarial-review` command to re-issue, so a later session (or the user) can resume without re-deriving anything. Then the main agent may continue with other, unrelated work.
-
----
-
-## Interpreting the Report
-
-When the review report arrives (read it from `.agent/reviews/<slug>.review.md`):
-
-### Step 1: Apply Claude's own judgment
-
-**Reviewers over-produce.** LLM reviewers feel pressure to "find something" — many blockers are false positives. For each blocker:
-
-1. Read it
-2. Form an independent opinion: is this actually a problem in this context?
-3. Categorize: **valid** / **false positive** / **uncertain — need user input**
-
-Pay special attention to `EVIDENCE_MISSING` items — they often mean "main agent forgot to fill Section 9.x", not "the implementation is broken." If so, fix by filling Section 9 + re-trigger review, not by sending the implementer back to fix code.
-
-### Step 2: Filter, then present to user
-
-**Never paste the raw report.** Distill into this structure:
+**Never paste the raw report.** Present:
 
 ```
 Review verdict: <PASS / NEEDS_CHANGES / FAIL>
 
-[If PASS]
-All acceptance criteria verified against Section 9 evidence. Safe to merge.
-[Optional: 1-2 nice-to-haves worth knowing about, if any]
+[PASS]      All acceptance criteria verified against §9 evidence. Safe to merge.
+            <optional 1–2 nice-to-haves worth knowing>
 
-[If NEEDS_CHANGES]
+[NEEDS_CHANGES]
 Reviewer flagged N blockers. My assessment:
-
-1. <Blocker 1 summary>
-   → My take: valid / false positive / evidence-gap (Section 9.x missing) / need your call
-   → If valid code issue: recommend re-dispatching the implementer subagent (SendMessage, same context) — the main agent does not fix it by hand
-   → If evidence gap: main agent fills Section 9.x, re-trigger review (no implementer re-run needed)
-   → If false positive: reasoning is <why>
-
-2. <Blocker 2 summary>
-   → My take: ...
-
+1. <blocker summary>
+   → My take: valid / false positive / evidence gap (§9.x) / need your call
+   → valid → re-dispatch the implementer via SendMessage (main agent does not fix by hand)
+   → evidence gap → fill §9.x, re-trigger review
+   → false positive → <why>
+2. ...
 Recommended next step: <specific action>
 
-[If FAIL]
-The implementation has fundamental issues:
-- <issue 1>
-- <issue 2>
-
-This usually means the spec itself has gaps. Recommend going back to Phase 1
-to refine. Want me to start that?
+[FAIL]      Fundamental issues: <list>. This usually means the spec has gaps.
+            Recommend returning to Phase 1 — want me to start that?
 ```
 
-### Step 3: Wait for user decision
+Then wait for the user. Accepted blockers → implementer fixes (`implement-prompt.md` § "If a check fails") → re-verify → commit → `/codex:adversarial-review` again, Codex every time.
 
-Do not auto-advance. The user decides:
+## Don'ts
 
-- Accept reviewer's blockers as-is → send fix instructions to the implementer subagent (see `implement-prompt.md` § "continue the same implementer"), re-verify, re-commit, then re-trigger `/codex:adversarial-review` — Codex again, never a Claude reviewer
-- Override certain blockers → note in handoff, proceed with selective fixes
-- Re-plan → return to Phase 1
-
----
-
-## Anti-Patterns
-
-### ❌ Skipping focus areas
-
-Without `<FOCUS_AREAS>`, adversarial review becomes generic and produces noise. Always include 3-5 specific focus bullets relevant to the actual change.
-
-### ❌ Accepting the report uncritically
-
-If you forward every "blocker" to the user as if it's real, you've added a slow, expensive step that produces busywork. Filter first.
-
-### ❌ Running review when nothing was implemented
-
-If Phase 2 didn't produce a commit (implementer failed, was stopped, etc.), there's nothing to review. Go back to Phase 2, do not run review on an empty branch.
-
-### ❌ Triggering review with empty Section 9
-
-Section 9 evidence is the reviewer's acceptance ground truth; see `SKILL.md` Phase 2c. Empty evidence yields `EVIDENCE_MISSING` blockers.
-
-### ❌ Asking Codex to re-run build/test commands inside review
-
-See `SKILL.md` "Sandbox constraints"; evidence-based review is more reliable than prompting doomed build/test retries. (Read-only `git diff` is permitted only in self-collect mode for large diffs.)
-
-### ❌ Asking Codex to fix as part of the review prompt
-
-`/codex:adversarial-review` is read-only by design. Don't try to make it both reviewer and fixer in the same call — you lose the separation that makes this workflow valuable. Fixes go back to the implementer subagent in a separate step; Codex only ever reads.
-
-### ❌ Substituting a Claude reviewer when Codex is slow or rate-limited
-
-"Codex is down, I'll have a general-purpose subagent review it so we can ship today" is the exact failure this workflow is built to prevent. The implementer was Claude; the review must not be. Wait, retry, or pin another Codex model — never fall back within the same model family.
+- Asking Codex to fix in the review call — it is read-only by design; fixes go to the implementer in a separate step.
+- Running review on an empty branch or with empty §9.
+- Forwarding every reviewer "blocker" unfiltered — that turns the review into busywork.
+- Substituting a Claude reviewer because Codex is slow or rate-limited.
